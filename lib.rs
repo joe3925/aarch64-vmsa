@@ -1,4 +1,6 @@
 #![no_std]
-
-//! AArch64 Virtual Memory System Architecture primitives.
-
+pub mod addr;
+pub mod format;
+pub mod granule;
+pub mod leaf;
+pub mod table;
