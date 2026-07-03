@@ -6,3 +6,4 @@ pub mod granule;
 pub mod leaf;
 pub mod table;
 pub mod translation_regime;
+pub mod walkers;
