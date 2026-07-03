@@ -1,9 +1,14 @@
+use crate::attrs::{EncodedLeafAttrs, EncodedTableAttrs};
 use core::ptr;
 
 use crate::addr::PhysAddr;
 use crate::granule::{Level, TranslationGranule};
-use crate::leaf::EncodedLeafAttrs;
-use crate::table::{DescriptorKind, EncodedTableAttrs};
+pub enum DescriptorKind {
+    Block,
+    Page,
+    Table,
+    Invalid,
+}
 
 pub trait DescriptorFormat: Copy + Sized + 'static {
     type Raw: Copy + Eq;
@@ -20,7 +25,7 @@ pub trait DescriptorFormat: Copy + Sized + 'static {
 
     const ADDRESS_FIELD_MASK: u128;
 
-    const REQUIRED_FEATURES: RequiredFormatFeatures;
+    const REQUIRED_FEATURES: FormatFeatures;
 
     fn invalid() -> Self::Raw;
 
@@ -42,14 +47,14 @@ pub trait DescriptorFormat: Copy + Sized + 'static {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct RequiredFormatFeatures {
+pub struct FormatFeatures {
     pub lpa2: bool,
     pub d128: bool,
     pub extended_input_address: bool,
     pub extended_output_address: bool,
 }
 
-impl RequiredFormatFeatures {
+impl FormatFeatures {
     pub const NONE: Self = Self {
         lpa2: false,
         d128: false,
@@ -63,14 +68,6 @@ impl RequiredFormatFeatures {
         extended_input_address: false,
         extended_output_address: false,
     };
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RequiredFeature {
-    Lpa2,
-    D128,
-    ExtendedInputAddress,
-    ExtendedOutputAddress,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,7 +97,7 @@ impl DescriptorFormat for VmsaV8 {
     const BASE_LOWEST_ROOT_LEVEL: Level = Level::L0;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
     const ADDRESS_FIELD_MASK: u128 = VMSA64_ADDR_FIELD_MASK;
-    const REQUIRED_FEATURES: RequiredFormatFeatures = RequiredFormatFeatures::NONE;
+    const REQUIRED_FEATURES: FormatFeatures = FormatFeatures::NONE;
 
     fn invalid() -> Self::Raw {
         0
@@ -163,7 +160,7 @@ impl DescriptorFormat for VmsaV9 {
     const BASE_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
     const ADDRESS_FIELD_MASK: u128 = VMSA128_ADDR_FIELD_MASK;
-    const REQUIRED_FEATURES: RequiredFormatFeatures = RequiredFormatFeatures::D128;
+    const REQUIRED_FEATURES: FormatFeatures = FormatFeatures::D128;
 
     fn invalid() -> Self::Raw {
         0
