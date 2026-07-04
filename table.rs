@@ -5,6 +5,7 @@ use core::ptr::NonNull;
 
 use crate::addr::VirtAddr;
 use crate::granule::TranslationGranule;
+use crate::table_geometry::TableGeometry;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -82,7 +83,7 @@ where
     }
 
     pub fn entries(self) -> usize {
-        (G::SIZE as usize) / F::DESCRIPTOR_BYTES
+        TableGeometry::<F, G>::entries()
     }
 
     pub fn entry_ptr(self, index: usize) -> Option<NonNull<F::Raw>> {
@@ -117,19 +118,19 @@ where
     }
 
     pub fn index_bits(self) -> u8 {
-        G::SHIFT - F::DESCRIPTOR_SHIFT
+        TableGeometry::<F, G>::index_bits()
     }
 
     pub fn index_mask(self) -> u64 {
-        (1u64 << self.index_bits()) - 1
+        TableGeometry::<F, G>::index_mask()
     }
 
     pub fn level_shift(self) -> u8 {
-        G::SHIFT + self.index_bits() * (Level::L3.as_i8() as u8 - self.level.as_i8() as u8)
+        TableGeometry::<F, G>::level_shift(self.level)
     }
 
     pub fn index_for_va(self, va: VirtAddr) -> usize {
-        ((va.0 >> self.level_shift()) & self.index_mask()) as usize
+        TableGeometry::<F, G>::index_at_level_raw(va.0, self.level)
     }
 }
 
