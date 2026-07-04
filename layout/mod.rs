@@ -15,19 +15,12 @@ use crate::walkers::TranslationStage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DescriptorLayoutConfig {
-    pub output_addr_bits: u8,
-    pub effective_shareability: Option<RawFieldBlock<2>>,
+    pub effective_shareability: RawFieldBlock<2>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DescriptorError {
-    InvalidDescriptorKindForLevel,
     InvalidFieldValue,
-    AddressOutOfRange,
-    AddressNotAligned,
-    MissingEffectiveShareability,
-    ConflictingEffectiveShareability,
-    ReservedBitsSet,
 }
 
 #[repr(transparent)]
@@ -48,6 +41,11 @@ impl<const BITS: u8> RawFieldBlock<BITS> {
     pub const fn bits(self) -> u128 {
         self.bits
     }
+
+    pub(super) const fn from_masked(bits: u128) -> Self {
+        debug_assert!(bits & !lower_bits_mask(BITS) == 0);
+        Self { bits }
+    }
 }
 
 pub trait DescriptorLayout<F, S, G>: Copy + 'static
@@ -67,30 +65,26 @@ where
         raw: F::Raw,
         level: Level,
         config: DescriptorLayoutConfig,
-    ) -> Result<Self::LeafFields, DescriptorError>;
+    ) -> Self::LeafFields;
 
     fn decode_table_fields(
         raw: F::Raw,
         level: Level,
         config: DescriptorLayoutConfig,
-    ) -> Result<Self::TableFields, DescriptorError>;
+    ) -> Self::TableFields;
 
     fn leaf_descriptor(
         output_pa: PhysAddr,
         level: Level,
         fields: Self::LeafFields,
         config: DescriptorLayoutConfig,
-    ) -> Result<F::Raw, DescriptorError>;
+    ) -> F::Raw;
 
     fn table_descriptor(
         table_pa: PhysAddr,
         fields: Self::TableFields,
         config: DescriptorLayoutConfig,
-    ) -> Result<F::Raw, DescriptorError>;
+    ) -> F::Raw;
 
-    fn output_address(
-        raw: F::Raw,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Result<PhysAddr, DescriptorError>;
+    fn output_address(raw: F::Raw, level: Level, config: DescriptorLayoutConfig) -> PhysAddr;
 }
