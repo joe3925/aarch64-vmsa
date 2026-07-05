@@ -9,18 +9,14 @@ pub use vmsa64_lpa2::*;
 pub use vmsa128::*;
 
 use crate::addr::PhysAddr;
+use crate::attrs::Shareability;
 use crate::format::{DescriptorFormat, DescriptorKind};
 use crate::granule::{Level, TranslationGranule};
 use crate::walkers::TranslationStage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DescriptorLayoutConfig {
-    pub effective_shareability: RawFieldBlock<2>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DescriptorError {
-    InvalidFieldValue,
+    pub effective_shareability: Shareability,
 }
 
 #[repr(transparent)]
@@ -30,19 +26,11 @@ pub struct RawFieldBlock<const BITS: u8> {
 }
 
 impl<const BITS: u8> RawFieldBlock<BITS> {
-    pub fn new(bits: u128) -> Result<Self, DescriptorError> {
-        if bits & !lower_bits_mask(BITS) != 0 {
-            return Err(DescriptorError::InvalidFieldValue);
-        }
-
-        Ok(Self { bits })
-    }
-
     pub const fn bits(self) -> u128 {
         self.bits
     }
 
-    pub(super) const fn from_masked(bits: u128) -> Self {
+    pub(crate) const fn from_masked(bits: u128) -> Self {
         debug_assert!(bits & !lower_bits_mask(BITS) == 0);
         Self { bits }
     }
