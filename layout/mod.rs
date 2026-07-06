@@ -9,15 +9,9 @@ pub use vmsa64_lpa2::*;
 pub use vmsa128::*;
 
 use crate::addr::PhysAddr;
-use crate::attrs::Shareability;
 use crate::format::{DescriptorFormat, DescriptorKind};
 use crate::granule::{Level, TranslationGranule};
 use crate::walkers::TranslationStage;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DescriptorLayoutConfig {
-    pub effective_shareability: Shareability,
-}
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,30 +43,13 @@ where
 
     fn kind(raw: F::Raw, level: Level) -> DescriptorKind;
 
-    fn decode_leaf_fields(
-        raw: F::Raw,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::LeafFields;
+    fn decode_leaf_fields(raw: F::Raw, level: Level) -> Self::LeafFields;
 
-    fn decode_table_fields(
-        raw: F::Raw,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::TableFields;
+    fn decode_table_fields(raw: F::Raw, level: Level) -> Self::TableFields;
 
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-        config: DescriptorLayoutConfig,
-    ) -> F::Raw;
+    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> F::Raw;
 
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        fields: Self::TableFields,
-        config: DescriptorLayoutConfig,
-    ) -> F::Raw;
+    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> F::Raw;
 
-    fn output_address(raw: F::Raw, level: Level, config: DescriptorLayoutConfig) -> PhysAddr;
+    fn output_address(raw: F::Raw, level: Level) -> PhysAddr;
 }

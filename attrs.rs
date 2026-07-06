@@ -1,63 +1,76 @@
-use crate::format::DescriptorFormat;
-use crate::format::FormatFeatures;
-use crate::granule::Level;
-use crate::granule::TranslationGranule;
+mod codecs;
+mod config;
+mod pas;
+mod permissions;
+mod profile;
+mod semantic;
+mod vmsa128;
+mod vmsa64;
+
+pub use config::*;
+pub use pas::*;
+pub use permissions::*;
+pub use profile::*;
+pub use semantic::*;
+pub use vmsa64::*;
+pub use vmsa128::*;
+
+use crate::format::{DescriptorFormat, HasLayout};
+use crate::granule::{Level, TranslationGranule};
+use crate::layout::DescriptorLayout;
 use crate::translation_regime::TranslationRegime;
+use crate::walkers::{TranslationStage, TranslationWalkProfile};
 
-#[repr(transparent)]
-#[derive(Eq, PartialEq)]
-pub struct EncodedLeafAttrs<F: DescriptorFormat> {
-    raw: F::Raw,
-}
+pub type StageOf<R> = <<R as TranslationRegime>::WalkProfile as TranslationWalkProfile>::Stage;
 
-impl<F: DescriptorFormat> Copy for EncodedLeafAttrs<F> {}
+pub type AttrProfileOf<R> = <R as TranslationRegime>::AttrProfile;
 
-impl<F: DescriptorFormat> Clone for EncodedLeafAttrs<F> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
+pub type StageLayoutOf<F, S, G> = <F as HasLayout<S, G>>::Layout;
 
-impl<F: DescriptorFormat> EncodedLeafAttrs<F> {
-    pub const unsafe fn from_raw_unchecked(raw: F::Raw) -> Self {
-        Self { raw }
-    }
+pub type StageLeafFieldsOf<F, S, G> =
+    <StageLayoutOf<F, S, G> as DescriptorLayout<F, S, G>>::LeafFields;
 
-    pub const fn bits(self) -> F::Raw {
-        self.raw
-    }
-}
-#[repr(transparent)]
-#[derive(Debug, Eq, PartialEq)]
-pub struct EncodedTableAttrs<F: DescriptorFormat> {
-    raw: F::Raw,
-}
+pub type StageTableFieldsOf<F, S, G> =
+    <StageLayoutOf<F, S, G> as DescriptorLayout<F, S, G>>::TableFields;
 
-impl<F: DescriptorFormat> Copy for EncodedTableAttrs<F> {}
+pub type LayoutOf<F, R, G> = StageLayoutOf<F, StageOf<R>, G>;
 
-impl<F: DescriptorFormat> Clone for EncodedTableAttrs<F> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
+pub type LeafFieldsOf<F, R, G> =
+    <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::LeafFields;
 
-impl<F: DescriptorFormat> EncodedTableAttrs<F> {
-    pub const unsafe fn from_raw_unchecked(raw: F::Raw) -> Self {
-        Self { raw }
-    }
+pub type TableFieldsOf<F, R, G> =
+    <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::TableFields;
 
-    pub const fn bits(self) -> F::Raw {
-        self.raw
-    }
-}
+pub type LeafAttrsOf<F, R, G, C> =
+    <AttrProfileOf<R> as AttributeCodec<F, StageOf<R>, G, C>>::LeafAttrs;
+
+pub type TableAttrsOf<F, R, G, C> =
+    <AttrProfileOf<R> as AttributeCodec<F, StageOf<R>, G, C>>::TableAttrs;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttrError {
-    InvalidForLevel { attr: AttrKind, level: Level },
-
-    ConflictingAttributes { first: AttrKind, second: AttrKind },
-
-    SoftwareBitsOutOfRange { requested: u64, allowed_mask: u64 },
+    ConflictingAttributes {
+        first: AttrKind,
+        second: AttrKind,
+    },
+    UnencodablePermissions,
+    InvalidOutputAddressSpace,
+    InvalidShareability,
+    ShareabilityMismatch {
+        requested: Shareability,
+        effective: Shareability,
+    },
+    MemoryAttributeNotConfigured,
+    Mair2Unavailable,
+    InvalidMairIndexWidth,
+    UnencodableMemoryAttribute,
+    PermissionIndirectionUnavailable,
+    PermissionOverlayUnavailable,
+    PermissionCombinationNotConfigured,
+    InvalidD128Alias,
+    InvalidD128Configuration,
 }
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttrKind {
     Memory,
@@ -73,23 +86,38 @@ pub enum AttrKind {
     TableAccessLimit,
     TableExecuteLimit,
 }
-pub trait RegimeFor<F, G>: TranslationRegime
+
+pub trait AttributeCodec<F, S, G, C>: AttributeProfile<S>
 where
-    F: DescriptorFormat,
+    F: DescriptorFormat + HasLayout<S, G>,
+    S: TranslationStage,
     G: TranslationGranule,
+    C: LiveAttributeConfiguration,
 {
     type LeafAttrs;
     type TableAttrs;
 
     fn encode_leaf_attrs(
+        resolver: &AttributeResolver<C>,
         attrs: Self::LeafAttrs,
         level: Level,
-        features: FormatFeatures,
-    ) -> Result<EncodedLeafAttrs<F>, AttrError>;
+    ) -> Result<StageLeafFieldsOf<F, S, G>, AttrError>;
+
+    fn decode_leaf_attrs(
+        resolver: &AttributeResolver<C>,
+        fields: StageLeafFieldsOf<F, S, G>,
+        level: Level,
+    ) -> Result<Self::LeafAttrs, AttrError>;
 
     fn encode_table_attrs(
+        resolver: &AttributeResolver<C>,
         attrs: Self::TableAttrs,
         level: Level,
-        features: FormatFeatures,
-    ) -> Result<EncodedTableAttrs<F>, AttrError>;
+    ) -> Result<StageTableFieldsOf<F, S, G>, AttrError>;
+
+    fn decode_table_attrs(
+        resolver: &AttributeResolver<C>,
+        fields: StageTableFieldsOf<F, S, G>,
+        level: Level,
+    ) -> Result<Self::TableAttrs, AttrError>;
 }

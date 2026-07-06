@@ -9,7 +9,7 @@ use crate::format::{DescriptorKind, HasLayout, Vmsa128};
 use crate::granule::{Level, TranslationGranule};
 use crate::walkers::{Stage1, Stage2};
 
-use super::{DescriptorLayout, DescriptorLayoutConfig, RawFieldBlock};
+use super::{DescriptorLayout, RawFieldBlock};
 
 const VMSA128_VALID: u128 = 1 << 0;
 const VMSA128_ADDR_FIELD_MASK: u128 = 0x00FF_FFFF_FFFF_F000;
@@ -42,43 +42,26 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage1, G> for Vmsa128Layo
         vmsa128_kind(raw, level)
     }
 
-    fn decode_leaf_fields(
-        raw: u128,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::LeafFields {
-        let (low, high) = decode_vmsa128_leaf_blocks(raw, level, config);
+    fn decode_leaf_fields(raw: u128, level: Level) -> Self::LeafFields {
+        let (low, high) = decode_vmsa128_leaf_blocks(raw, level);
         Vmsa128Stage1LeafFields { low, high }
     }
 
-    fn decode_table_fields(
-        raw: u128,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::TableFields {
-        let (low, high) = decode_vmsa128_table_blocks(raw, level, config);
+    fn decode_table_fields(raw: u128, level: Level) -> Self::TableFields {
+        let (low, high) = decode_vmsa128_table_blocks(raw, level);
         Vmsa128Stage1TableFields { low, high }
     }
 
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-        config: DescriptorLayoutConfig,
-    ) -> u128 {
-        encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high, config)
+    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u128 {
+        encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high)
     }
 
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        fields: Self::TableFields,
-        config: DescriptorLayoutConfig,
-    ) -> u128 {
-        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high, config)
+    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u128 {
+        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high)
     }
 
-    fn output_address(raw: u128, level: Level, config: DescriptorLayoutConfig) -> PhysAddr {
-        decode_vmsa128_output_address(raw, level, config)
+    fn output_address(raw: u128, level: Level) -> PhysAddr {
+        decode_vmsa128_output_address(raw, level)
     }
 }
 
@@ -92,43 +75,26 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage2, G> for Vmsa128Layo
         vmsa128_kind(raw, level)
     }
 
-    fn decode_leaf_fields(
-        raw: u128,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::LeafFields {
-        let (low, high) = decode_vmsa128_leaf_blocks(raw, level, config);
+    fn decode_leaf_fields(raw: u128, level: Level) -> Self::LeafFields {
+        let (low, high) = decode_vmsa128_leaf_blocks(raw, level);
         Vmsa128Stage2LeafFields { low, high }
     }
 
-    fn decode_table_fields(
-        raw: u128,
-        level: Level,
-        config: DescriptorLayoutConfig,
-    ) -> Self::TableFields {
-        let (low, high) = decode_vmsa128_table_blocks(raw, level, config);
+    fn decode_table_fields(raw: u128, level: Level) -> Self::TableFields {
+        let (low, high) = decode_vmsa128_table_blocks(raw, level);
         Vmsa128Stage2TableFields { low, high }
     }
 
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-        config: DescriptorLayoutConfig,
-    ) -> u128 {
-        encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high, config)
+    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u128 {
+        encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high)
     }
 
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        fields: Self::TableFields,
-        config: DescriptorLayoutConfig,
-    ) -> u128 {
-        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high, config)
+    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u128 {
+        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high)
     }
 
-    fn output_address(raw: u128, level: Level, config: DescriptorLayoutConfig) -> PhysAddr {
-        decode_vmsa128_output_address(raw, level, config)
+    fn output_address(raw: u128, level: Level) -> PhysAddr {
+        decode_vmsa128_output_address(raw, level)
     }
 }
 
@@ -153,21 +119,13 @@ fn vmsa128_kind(raw: u128, level: Level) -> DescriptorKind {
     }
 }
 
-fn decode_vmsa128_leaf_blocks(
-    raw: u128,
-    _level: Level,
-    _config: DescriptorLayoutConfig,
-) -> (RawFieldBlock<10>, RawFieldBlock<20>) {
+fn decode_vmsa128_leaf_blocks(raw: u128, _level: Level) -> (RawFieldBlock<10>, RawFieldBlock<20>) {
     let low = RawFieldBlock::from_masked((raw >> VMSA128_FIELD_LO_SHIFT) & 0x3ff);
     let high = RawFieldBlock::from_masked((raw >> VMSA128_FIELD_HI_SHIFT) & 0xfffff);
     (low, high)
 }
 
-fn decode_vmsa128_table_blocks(
-    raw: u128,
-    _level: Level,
-    _config: DescriptorLayoutConfig,
-) -> (RawFieldBlock<8>, RawFieldBlock<20>) {
+fn decode_vmsa128_table_blocks(raw: u128, _level: Level) -> (RawFieldBlock<8>, RawFieldBlock<20>) {
     let low = RawFieldBlock::from_masked((raw >> VMSA128_TABLE_LO_SHIFT) & 0xff);
     let high = RawFieldBlock::from_masked((raw >> VMSA128_FIELD_HI_SHIFT) & 0xfffff);
     (low, high)
@@ -178,7 +136,6 @@ fn encode_vmsa128_leaf_blocks(
     _level: Level,
     low: RawFieldBlock<10>,
     high: RawFieldBlock<20>,
-    _config: DescriptorLayoutConfig,
 ) -> u128 {
     (output_pa.0 as u128 & VMSA128_ADDR_FIELD_MASK)
         | (low.bits() << VMSA128_FIELD_LO_SHIFT)
@@ -190,7 +147,6 @@ fn encode_vmsa128_table_blocks(
     table_pa: PhysAddr,
     low: RawFieldBlock<8>,
     high: RawFieldBlock<20>,
-    _config: DescriptorLayoutConfig,
 ) -> u128 {
     let raw_high = high.bits() << VMSA128_FIELD_HI_SHIFT;
     (table_pa.0 as u128 & VMSA128_ADDR_FIELD_MASK)
@@ -199,11 +155,7 @@ fn encode_vmsa128_table_blocks(
         | VMSA128_VALID
 }
 
-fn decode_vmsa128_output_address(
-    raw: u128,
-    _level: Level,
-    _config: DescriptorLayoutConfig,
-) -> PhysAddr {
+fn decode_vmsa128_output_address(raw: u128, _level: Level) -> PhysAddr {
     PhysAddr((raw & VMSA128_ADDR_FIELD_MASK) as u64)
 }
 

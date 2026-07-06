@@ -9,10 +9,7 @@ use crate::format::{DescriptorKind, HasLayout, Vmsa64};
 use crate::granule::{Level, TranslationGranule};
 use crate::walkers::{Stage1, Stage2};
 
-use super::{
-    DescriptorLayout, DescriptorLayoutConfig, RawFieldBlock, decode_direct_output_address,
-    encode_direct_address,
-};
+use super::{DescriptorLayout, RawFieldBlock, decode_direct_output_address, encode_direct_address};
 
 pub(super) const VMSA64_VALID: u64 = 1 << 0;
 pub(super) const VMSA64_TABLE_OR_PAGE: u64 = 1 << 1;
@@ -40,11 +37,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
         vmsa64_kind(raw, level)
     }
 
-    fn decode_leaf_fields(
-        raw: u64,
-        _level: Level,
-        _config: DescriptorLayoutConfig,
-    ) -> Self::LeafFields {
+    fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
         Vmsa64Stage1LeafFields {
             lower: RawFieldBlock::from_masked(((raw >> 2) & 0x3ff) as u128),
             upper: RawFieldBlock::from_masked(((raw >> 52) & 0x7) as u128),
@@ -54,23 +47,14 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
         }
     }
 
-    fn decode_table_fields(
-        raw: u64,
-        _level: Level,
-        _config: DescriptorLayoutConfig,
-    ) -> Self::TableFields {
+    fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
         Vmsa64Stage1TableFields {
             upper: RawFieldBlock::from_masked(((raw >> 59) & 0x1f) as u128),
             software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
         }
     }
 
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-        _config: DescriptorLayoutConfig,
-    ) -> u64 {
+    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u64 {
         let address = encode_direct_address(output_pa, Self::ADDRESS_FIELD_MASK);
 
         address as u64
@@ -82,11 +66,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
             | vmsa64_leaf_kind_bits(level)
     }
 
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        fields: Self::TableFields,
-        _config: DescriptorLayoutConfig,
-    ) -> u64 {
+    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
         let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
 
         address as u64
@@ -96,7 +76,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
             | VMSA64_TABLE_OR_PAGE
     }
 
-    fn output_address(raw: u64, _level: Level, _config: DescriptorLayoutConfig) -> PhysAddr {
+    fn output_address(raw: u64, _level: Level) -> PhysAddr {
         decode_direct_output_address(raw as u128, Self::ADDRESS_FIELD_MASK)
     }
 }
@@ -111,11 +91,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
         vmsa64_kind(raw, level)
     }
 
-    fn decode_leaf_fields(
-        raw: u64,
-        _level: Level,
-        _config: DescriptorLayoutConfig,
-    ) -> Self::LeafFields {
+    fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
         let upper = (raw >> 52) & 0b111;
         Vmsa64Stage2LeafFields {
             lower: RawFieldBlock::from_masked(((raw >> 2) & 0x1ff) as u128),
@@ -125,22 +101,13 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
         }
     }
 
-    fn decode_table_fields(
-        raw: u64,
-        _level: Level,
-        _config: DescriptorLayoutConfig,
-    ) -> Self::TableFields {
+    fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
         Vmsa64Stage2TableFields {
             software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
         }
     }
 
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-        _config: DescriptorLayoutConfig,
-    ) -> u64 {
+    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u64 {
         let address = encode_direct_address(output_pa, Self::ADDRESS_FIELD_MASK);
         let upper = fields.upper.bits() as u64;
 
@@ -153,16 +120,12 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
             | vmsa64_leaf_kind_bits(level)
     }
 
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        fields: Self::TableFields,
-        _config: DescriptorLayoutConfig,
-    ) -> u64 {
+    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
         let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
         address as u64 | (fields.software.bits() as u64) << 55 | VMSA64_VALID | VMSA64_TABLE_OR_PAGE
     }
 
-    fn output_address(raw: u64, _level: Level, _config: DescriptorLayoutConfig) -> PhysAddr {
+    fn output_address(raw: u64, _level: Level) -> PhysAddr {
         decode_direct_output_address(raw as u128, Self::ADDRESS_FIELD_MASK)
     }
 }
