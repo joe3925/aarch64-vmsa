@@ -1,6 +1,7 @@
 #![no_std]
 pub mod addr;
 pub mod attrs;
+pub mod features;
 pub mod fields;
 pub mod format;
 pub mod granule;
