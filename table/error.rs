@@ -1,4 +1,5 @@
 use crate::addr::{PhysAddr, VirtAddr};
+use crate::granule::Level;
 
 use super::TableAddressError;
 
@@ -11,11 +12,40 @@ pub enum TableError {
 pub enum AccessError {
     AddressOverflow,
     NullMapping,
-    UnalignedTableAddress { addr: PhysAddr, align: u64 },
-    RecursiveAddressUnavailable { table: PhysAddr },
+    UnalignedTableAddress {
+        addr: PhysAddr,
+        align: u64,
+    },
     RecursiveLevelMismatch,
-    RecursiveIndexOutOfRange { index: usize, entries: usize },
-    InvalidRecursiveBase { base: VirtAddr },
+    RecursiveIndexOutOfRange {
+        index: usize,
+        entries: usize,
+    },
+    InvalidRecursiveBase {
+        base: VirtAddr,
+    },
+    InvalidTableLevel {
+        root_level: Level,
+        level: Level,
+        final_level: Level,
+    },
+    TablePathLengthMismatch {
+        expected: u8,
+        actual: u8,
+    },
+    TablePathIndexOutOfRange {
+        index: usize,
+        entries: usize,
+    },
+    TablePathCapacityExceeded {
+        len: u8,
+        index_bits: u8,
+    },
+    TablePathLevelUnavailable {
+        root_level: Level,
+        level: Level,
+        len: u8,
+    },
 }
 
 impl From<TableAddressError> for AccessError {

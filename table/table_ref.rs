@@ -34,10 +34,6 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    /// # Safety
-    ///
-    /// `base` must point to one mapped table granule containing descriptors for
-    /// `F`, and that mapping must remain readable for `'a`.
     pub unsafe fn from_ptr(base: NonNull<F::Raw>, level: Level) -> Self {
         Self {
             base,
@@ -63,7 +59,6 @@ where
             return None;
         }
 
-        // The constructor guarantees a full table mapping and the index is bounded.
         let ptr = unsafe { self.base.as_ptr().add(index) };
 
         NonNull::new(ptr)
@@ -72,7 +67,6 @@ where
     pub fn read(&self, index: usize) -> Option<F::Raw> {
         let ptr = self.entry_ptr(index)?;
 
-        // The table mapping is readable for `'a`, and the pointer is in bounds.
         Some(unsafe { F::read_descriptor(ptr.as_ptr()) })
     }
 
@@ -98,10 +92,6 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    /// # Safety
-    ///
-    /// `base` must point to one mapped table granule containing descriptors for
-    /// `F`. The mapping must remain readable and exclusively writable for `'a`.
     pub unsafe fn from_ptr(base: NonNull<F::Raw>, level: Level) -> Self {
         Self {
             base,
@@ -119,7 +109,6 @@ where
     }
 
     pub fn as_table(&self) -> TranslationTable<'_, F, G> {
-        // The shared view is bounded by this borrow of the valid mutable mapping.
         unsafe { TranslationTable::from_ptr(self.base, self.level) }
     }
 
@@ -151,7 +140,6 @@ where
                 entries: self.entries(),
             })?;
 
-        // The mutable view owns exclusive access and the pointer is in bounds.
         unsafe {
             F::write_descriptor(ptr.as_ptr(), raw);
         }

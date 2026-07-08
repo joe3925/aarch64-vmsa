@@ -56,6 +56,14 @@ impl Level {
         self.0 > other.0
     }
 
+    pub const fn distance_from(self, root: Self) -> Option<u8> {
+        if self.is_before(root) {
+            None
+        } else {
+            Some((self.0 as i16 - root.0 as i16) as u8)
+        }
+    }
+
     pub const fn is_between_inclusive(self, start: Self, end: Self) -> bool {
         self.0 >= start.0 && self.0 <= end.0
     }

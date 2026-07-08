@@ -2,10 +2,11 @@ use core::ptr::NonNull;
 
 use crate::addr::VirtAddr;
 use crate::format::DescriptorFormat;
-use crate::granule::{Level, TranslationGranule};
+use crate::granule::TranslationGranule;
 
 use super::{
-    AccessError, TableAccess, TableAccessMut, TablePhysAddr, TranslationTable, TranslationTableMut,
+    AccessError, TableAccess, TableAccessLocation, TableAccessMut, TablePhysAddr, TranslationTable,
+    TranslationTableMut,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,12 +47,11 @@ where
 
     fn table_at<'a>(
         &'a self,
-        addr: TablePhysAddr<G>,
-        level: Level,
+        location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTable<'a, F, G>, Self::Error> {
-        let ptr = self.table_ptr::<F, G>(addr)?;
+        let ptr = self.table_ptr::<F, G>(location.addr)?;
 
-        Ok(unsafe { TranslationTable::from_ptr(ptr, level) })
+        Ok(unsafe { TranslationTable::from_ptr(ptr, location.level) })
     }
 }
 
@@ -62,11 +62,10 @@ where
 {
     fn table_at_mut<'a>(
         &'a mut self,
-        addr: TablePhysAddr<G>,
-        level: Level,
+        location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTableMut<'a, F, G>, Self::Error> {
-        let ptr = self.table_ptr::<F, G>(addr)?;
+        let ptr = self.table_ptr::<F, G>(location.addr)?;
 
-        Ok(unsafe { TranslationTableMut::from_ptr(ptr, level) })
+        Ok(unsafe { TranslationTableMut::from_ptr(ptr, location.level) })
     }
 }
