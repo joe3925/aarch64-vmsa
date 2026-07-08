@@ -1,5 +1,5 @@
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PhysAddr(pub u64);
 
 #[repr(transparent)]
