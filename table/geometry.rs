@@ -22,13 +22,45 @@ where
         (1u64 << Self::index_bits()) - 1
     }
 
-    pub const fn level_shift(level: Level) -> u8 {
+    pub const fn checked_level_shift(level: Level) -> Option<u8> {
+        if level.is_after(F::FINAL_LEVEL) {
+            return None;
+        }
+
         let delta = F::FINAL_LEVEL.as_i8() - level.as_i8();
 
-        G::SHIFT + Self::index_bits() * delta as u8
+        if delta < 0 {
+            return None;
+        }
+
+        let index_bits = Self::index_bits() as u16;
+        let shift = G::SHIFT as u16 + index_bits * delta as u16;
+
+        if shift >= u64::BITS as u16 {
+            return None;
+        }
+
+        Some(shift as u8)
     }
 
-    pub const fn index_at_level_raw(input: u64, level: Level) -> usize {
-        ((input >> Self::level_shift(level)) & Self::index_mask()) as usize
+    pub const fn level_shift(level: Level) -> u8 {
+        match Self::checked_level_shift(level) {
+            Some(shift) => shift,
+            None => panic!("invalid table level shift"),
+        }
+    }
+
+    pub const fn index_at_level_raw(input: u64, level: Level) -> Option<usize> {
+        match Self::checked_level_shift(level) {
+            Some(shift) => Some(((input >> shift) & Self::index_mask()) as usize),
+            None => None,
+        }
+    }
+
+    pub const fn offset_at_level_raw(input: u64, level: Level) -> Option<u64> {
+        match Self::checked_level_shift(level) {
+            Some(shift) => Some(input & ((1u64 << shift) - 1)),
+            None => None,
+        }
     }
 }

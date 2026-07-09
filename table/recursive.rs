@@ -56,11 +56,8 @@ where
         let mut level = root_level;
 
         loop {
-            let shift = TableGeometry::<F, G>::level_shift(level);
-
-            if shift >= u64::BITS as u8
-                || TableGeometry::<F, G>::index_at_level_raw(recursive_base.0, level)
-                    != recursive_index
+            if TableGeometry::<F, G>::index_at_level_raw(recursive_base.0, level)
+                != Some(recursive_index)
             {
                 return Err(AccessError::InvalidRecursiveBase {
                     base: recursive_base,

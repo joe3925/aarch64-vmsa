@@ -82,7 +82,7 @@ where
         TableGeometry::<F, G>::level_shift(self.level)
     }
 
-    pub fn index_for_va(&self, va: VirtAddr) -> usize {
+    pub fn index_for_va(&self, va: VirtAddr) -> Option<usize> {
         TableGeometry::<F, G>::index_at_level_raw(va.0, self.level)
     }
 }
@@ -159,7 +159,7 @@ where
         TableGeometry::<F, G>::level_shift(self.level)
     }
 
-    pub fn index_for_va(&self, va: VirtAddr) -> usize {
+    pub fn index_for_va(&self, va: VirtAddr) -> Option<usize> {
         TableGeometry::<F, G>::index_at_level_raw(va.0, self.level)
     }
 }
