@@ -1,5 +1,5 @@
-use crate::addr::{PhysAddr, VirtAddr};
-use crate::granule::Level;
+use crate::address::Level;
+use crate::address::{PhysAddr, VirtAddr};
 
 use super::TableAddressError;
 

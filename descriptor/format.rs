@@ -1,9 +1,9 @@
 use core::ptr;
 
-use crate::features::VmsaFeatures;
-use crate::granule::{Level, TranslationGranule};
-use crate::layout::DescriptorLayout;
-use crate::walkers::TranslationStage;
+use crate::address::{Level, TranslationGranule};
+use crate::arch::VmsaFeatures;
+use crate::descriptor::DescriptorLayout;
+use crate::translation::TranslationStage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DescriptorKind {

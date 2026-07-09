@@ -1,3 +1,4 @@
+use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
     AttrError, AttrKind, AttributeCodec, AttributeResolver, D128SkipLevels, DirtyState,
     LiveAttributeConfiguration, MairIndex, MemoryTransience, PermissionIndirectionIndex,
@@ -6,14 +7,13 @@ use crate::attrs::{
     Stage2TablePermissions, Vmsa128Stage1LeafAttrs, Vmsa128Stage1TableAttrs,
     Vmsa128Stage2LeafAttrs, Vmsa128Stage2TableAttrs,
 };
-use crate::fields::{
+use crate::descriptor::RawFieldBlock;
+use crate::descriptor::Vmsa128;
+use crate::descriptor::{
     Vmsa128Stage1LeafFields, Vmsa128Stage1TableFields, Vmsa128Stage2LeafFields,
     Vmsa128Stage2TableFields,
 };
-use crate::format::Vmsa128;
-use crate::granule::{Level, TranslationGranule};
-use crate::layout::RawFieldBlock;
-use crate::walkers::{Stage1, Stage2};
+use crate::translation::{Stage1, Stage2};
 
 use super::common::{
     Stage1PasCodec, Stage1PermissionCodec, decode_stage2_data, encode_stage2_data,

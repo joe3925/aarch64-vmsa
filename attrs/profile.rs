@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 
-use crate::features::VmsaFeatures;
-use crate::translation_regime::{IpaSpace, RegimeOwner, TranslationSpace};
-use crate::walkers::{Stage1, Stage2, TranslationStage};
+use crate::arch::VmsaFeatures;
+use crate::translation::{IpaSpace, RegimeOwner, TranslationSpace};
+use crate::translation::{Stage1, Stage2, TranslationStage};
 
 use super::{PermissionModel, Stage1PasModel, Stage2PasContext};
 

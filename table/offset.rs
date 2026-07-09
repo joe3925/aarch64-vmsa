@@ -1,8 +1,8 @@
 use core::ptr::NonNull;
 
-use crate::addr::VirtAddr;
-use crate::format::DescriptorFormat;
-use crate::granule::TranslationGranule;
+use crate::address::TranslationGranule;
+use crate::address::VirtAddr;
+use crate::descriptor::DescriptorFormat;
 
 use super::{
     AccessError, TableAccess, TableAccessLocation, TableAccessMut, TablePhysAddr, TranslationTable,

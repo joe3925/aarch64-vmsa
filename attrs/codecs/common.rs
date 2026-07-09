@@ -4,7 +4,7 @@ use crate::attrs::{
     SinglePrivilegeLeafPermissions, SinglePrivilegeTablePermissions, Stage1PasModel,
     Stage2TablePermissions, TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissions,
 };
-use crate::layout::RawFieldBlock;
+use crate::descriptor::RawFieldBlock;
 
 #[derive(Clone, Copy)]
 pub(super) struct LeafPermissionBits {

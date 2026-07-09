@@ -1,3 +1,4 @@
+use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
     AttrError, AttributeCodec, AttributeResolver, DirtyBitManagement, LiveAttributeConfiguration,
     MairIndex, MemoryAttributes, Shareability, SoftwareDefinedBits, Stage1LeafAttrs, Stage1Profile,
@@ -5,14 +6,13 @@ use crate::attrs::{
     Stage2PasContext, Stage2Permissions, Stage2Profile, Stage2TableAttrs, Vmsa64Stage1LeafControls,
     Vmsa64Stage1TableControls, Vmsa64Stage2LeafControls, Vmsa64Stage2TableControls,
 };
-use crate::fields::{
+use crate::descriptor::RawFieldBlock;
+use crate::descriptor::Vmsa64Lpa2;
+use crate::descriptor::{
     Vmsa64Lpa2Stage1LeafFields, Vmsa64Lpa2Stage2LeafFields, Vmsa64Stage1TableFields,
     Vmsa64Stage2TableFields,
 };
-use crate::format::Vmsa64Lpa2;
-use crate::granule::{Level, TranslationGranule};
-use crate::layout::RawFieldBlock;
-use crate::walkers::{Stage1, Stage2};
+use crate::translation::{Stage1, Stage2};
 
 use super::common::{
     Stage1PasCodec, Stage1PermissionCodec, decode_stage2_data, encode_stage2_data,

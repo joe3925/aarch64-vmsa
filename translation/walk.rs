@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::addr::PhysAddr;
-use crate::format::{DescriptorFormat, DescriptorKind, HasLayout};
-use crate::granule::{Level, TranslationGranule};
-use crate::layout::DescriptorLayout;
+use crate::address::PhysAddr;
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::DescriptorLayout;
+use crate::descriptor::{DescriptorFormat, DescriptorKind, HasLayout};
 use crate::table::{
     AccessError, TableAccess, TableAccessLocation, TableAddressError, TableGeometry, TablePhysAddr,
     TableWalkPath,

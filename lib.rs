@@ -1,12 +1,13 @@
 #![no_std]
-pub mod addr;
+
+pub mod address;
+pub mod arch;
 pub mod attrs;
-pub mod features;
-pub mod fields;
-pub mod format;
-pub mod granule;
-pub mod layout;
-pub mod leaf;
+pub mod descriptor;
 pub mod table;
-pub mod translation_regime;
-pub mod walkers;
+pub mod translation;
+
+pub use address::{addr, granule};
+pub use arch::features;
+pub use descriptor::{fields, format, layout};
+pub use translation::{regime as translation_regime, walk as walkers};

@@ -1,4 +1,4 @@
-use crate::layout::RawFieldBlock;
+use crate::descriptor::RawFieldBlock;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Stage1LeafFields {

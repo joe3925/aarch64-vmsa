@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
-use crate::addr::PhysAddr;
-use crate::granule::TranslationGranule;
+use crate::address::PhysAddr;
+use crate::address::TranslationGranule;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]

@@ -1,4 +1,4 @@
-use crate::addr::VirtAddr;
+use crate::address::VirtAddr;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::layout::RawFieldBlock;
+use crate::descriptor::RawFieldBlock;
 
 use super::{
     DirtyState, EffectivePermissions, FeatureDependentLeafAlias, MemoryAttributes,

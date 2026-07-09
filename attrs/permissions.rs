@@ -1,7 +1,7 @@
 use core::fmt::Debug;
 
-use crate::features::VmsaFeatures;
-use crate::translation_regime::RegimeOwner;
+use crate::arch::VmsaFeatures;
+use crate::translation::RegimeOwner;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum DataAccess {

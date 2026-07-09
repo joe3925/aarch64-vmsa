@@ -15,11 +15,11 @@ pub use semantic::*;
 pub use vmsa64::*;
 pub use vmsa128::*;
 
-use crate::format::{DescriptorFormat, HasLayout};
-use crate::granule::{Level, TranslationGranule};
-use crate::layout::DescriptorLayout;
-use crate::translation_regime::TranslationRegime;
-use crate::walkers::{TranslationStage, TranslationWalkProfile};
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::DescriptorLayout;
+use crate::descriptor::{DescriptorFormat, HasLayout};
+use crate::translation::TranslationRegime;
+use crate::translation::{TranslationStage, TranslationWalkProfile};
 
 pub type StageOf<R> = <<R as TranslationRegime>::WalkProfile as TranslationWalkProfile>::Stage;
 

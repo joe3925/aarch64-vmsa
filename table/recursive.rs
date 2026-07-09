@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use crate::addr::VirtAddr;
-use crate::format::DescriptorFormat;
-use crate::granule::{Level, TranslationGranule};
+use crate::address::VirtAddr;
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::DescriptorFormat;
 
 use super::{
     AccessError, TableAccess, TableAccessLocation, TableAccessMut, TableGeometry, TablePhysAddr,

@@ -8,10 +8,10 @@ pub use vmsa64::*;
 pub use vmsa64_lpa2::*;
 pub use vmsa128::*;
 
-use crate::addr::PhysAddr;
-use crate::format::{DescriptorFormat, DescriptorKind};
-use crate::granule::{Level, TranslationGranule};
-use crate::walkers::TranslationStage;
+use crate::address::PhysAddr;
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::{DescriptorFormat, DescriptorKind};
+use crate::translation::TranslationStage;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

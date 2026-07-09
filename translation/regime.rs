@@ -1,11 +1,11 @@
+use crate::arch::VmsaFeatures;
 use crate::attrs::{
     AttributeProfile, El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions,
     FixedNonSecurePas, NonSecureIpaContext, RealmIpaContext, RealmPas, RootPas, SecureIpaContext,
     SecureNonSecureIpaContext, SecureSelectablePas, Stage1Profile, Stage2Permissions,
     Stage2Profile,
 };
-use crate::features::VmsaFeatures;
-use crate::walkers::{Stage1Walk, Stage2Walk, TranslationWalkProfile};
+use crate::translation::{Stage1Walk, Stage2Walk, TranslationWalkProfile};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RegimeOwner {

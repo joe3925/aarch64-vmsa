@@ -1,4 +1,4 @@
-use crate::addr::PhysAddr;
+use crate::address::PhysAddr;
 
 pub fn encode_direct_address(address: PhysAddr, address_field_mask: u128) -> u128 {
     address.0 as u128 & address_field_mask

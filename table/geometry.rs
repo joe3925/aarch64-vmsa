@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
-use crate::format::DescriptorFormat;
-use crate::granule::{Level, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::DescriptorFormat;
 
 pub struct TableGeometry<F, G>(PhantomData<(F, G)>);
 

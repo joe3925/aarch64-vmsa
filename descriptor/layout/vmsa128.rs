@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
 
-use crate::addr::PhysAddr;
-use crate::fields::{
+use crate::address::PhysAddr;
+use crate::address::{Level, TranslationGranule};
+use crate::descriptor::{DescriptorKind, HasLayout, Vmsa128};
+use crate::descriptor::{
     Vmsa128Stage1LeafFields, Vmsa128Stage1TableFields, Vmsa128Stage2LeafFields,
     Vmsa128Stage2TableFields,
 };
-use crate::format::{DescriptorKind, HasLayout, Vmsa128};
-use crate::granule::{Level, TranslationGranule};
-use crate::walkers::{Stage1, Stage2};
+use crate::translation::{Stage1, Stage2};
 
 use super::{DescriptorLayout, RawFieldBlock};
 
