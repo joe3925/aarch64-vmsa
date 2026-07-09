@@ -4,6 +4,7 @@ pub mod address;
 pub mod arch;
 pub mod attrs;
 pub mod descriptor;
+pub mod mapper;
 pub mod table;
 pub mod translation;
 

@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::address::PhysAddr;
-use crate::address::{Level, TranslationGranule};
+use crate::address::{GranuleKind, Level, TranslationGranule};
 use crate::descriptor::{DescriptorKind, HasLayout, Vmsa64};
 use crate::descriptor::{
     Vmsa64Stage1LeafFields, Vmsa64Stage1TableFields, Vmsa64Stage2LeafFields,
@@ -9,7 +9,12 @@ use crate::descriptor::{
 };
 use crate::translation::{Stage1, Stage2};
 
-use super::{DescriptorLayout, RawFieldBlock, decode_direct_output_address, encode_direct_address};
+use crate::table::TableTransition;
+
+use super::{
+    DescriptorError, DescriptorLayout, RawFieldBlock, decode_direct_output_address,
+    encode_direct_address, require_step_by_one_transition,
+};
 
 pub(super) const VMSA64_VALID: u64 = 1 << 0;
 pub(super) const VMSA64_TABLE_OR_PAGE: u64 = 1 << 1;
@@ -34,7 +39,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
     const ADDRESS_FIELD_MASK: u128 = VMSA64_ADDR_FIELD_MASK;
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(raw, level)
+        vmsa64_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
@@ -63,17 +68,22 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
             | (fields.guarded as u64) << 50
             | (fields.dirty_bit_modifier as u64) << 51
             | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(level)
+            | vmsa64_leaf_kind_bits(G::KIND, level)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa64, G>,
+        fields: Self::TableFields,
+    ) -> Result<u64, DescriptorError> {
+        require_step_by_one_transition(transition)?;
         let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
 
-        address as u64
+        Ok(address as u64
             | (fields.software.bits() as u64) << 55
             | (fields.upper.bits() as u64) << 59
             | VMSA64_VALID
-            | VMSA64_TABLE_OR_PAGE
+            | VMSA64_TABLE_OR_PAGE)
     }
 
     fn output_address(raw: u64, _level: Level) -> PhysAddr {
@@ -88,7 +98,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
     const ADDRESS_FIELD_MASK: u128 = VMSA64_ADDR_FIELD_MASK;
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(raw, level)
+        vmsa64_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
@@ -117,12 +127,20 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
             | ((upper >> 1) & 0b11) << 53
             | (fields.dirty_bit_modifier as u64) << 51
             | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(level)
+            | vmsa64_leaf_kind_bits(G::KIND, level)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa64, G>,
+        fields: Self::TableFields,
+    ) -> Result<u64, DescriptorError> {
+        require_step_by_one_transition(transition)?;
         let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
-        address as u64 | (fields.software.bits() as u64) << 55 | VMSA64_VALID | VMSA64_TABLE_OR_PAGE
+        Ok(address as u64
+            | (fields.software.bits() as u64) << 55
+            | VMSA64_VALID
+            | VMSA64_TABLE_OR_PAGE)
     }
 
     fn output_address(raw: u64, _level: Level) -> PhysAddr {
@@ -130,20 +148,35 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout
     }
 }
 
-pub(super) fn vmsa64_kind(raw: u64, level: Level) -> DescriptorKind {
+pub fn vmsa64_supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
+    level == Level::L3 || vmsa64_supports_block_descriptor(granule, level)
+}
+
+pub(super) fn vmsa64_kind(granule: GranuleKind, raw: u64, level: Level) -> DescriptorKind {
     match raw & VMSA64_TYPE_MASK {
         0b00 => DescriptorKind::Invalid,
-        0b01 if level < Level::L3 => DescriptorKind::Block,
+        0b01 if vmsa64_supports_block_descriptor(granule, level) => DescriptorKind::Block,
         0b11 if level < Level::L3 => DescriptorKind::Table,
         0b11 if level == Level::L3 => DescriptorKind::Page,
         _ => DescriptorKind::Invalid,
     }
 }
 
-pub(super) fn vmsa64_leaf_kind_bits(level: Level) -> u64 {
+pub(super) fn vmsa64_leaf_kind_bits(granule: GranuleKind, level: Level) -> u64 {
     if level == Level::L3 {
         VMSA64_VALID | VMSA64_TABLE_OR_PAGE
-    } else {
+    } else if vmsa64_supports_block_descriptor(granule, level) {
         VMSA64_VALID
+    } else {
+        debug_assert!(false, "unsupported VMSAv8-64 block level");
+        0
+    }
+}
+
+const fn vmsa64_supports_block_descriptor(granule: GranuleKind, level: Level) -> bool {
+    match (granule, level.as_i8()) {
+        (GranuleKind::Size4KiB, 1 | 2) => true,
+        (GranuleKind::Size16KiB | GranuleKind::Size64KiB, 2) => true,
+        _ => false,
     }
 }

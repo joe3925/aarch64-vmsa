@@ -7,3 +7,6 @@ edition = "2024"
 
 [lib]
 path = "lib.rs"
+
+[dependencies]
+portable-atomic = { version = "1.13.1", default-features = false }

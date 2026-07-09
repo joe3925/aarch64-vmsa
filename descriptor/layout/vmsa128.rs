@@ -1,15 +1,16 @@
 use core::marker::PhantomData;
 
 use crate::address::PhysAddr;
-use crate::address::{Level, TranslationGranule};
+use crate::address::{GranuleKind, Level, TranslationGranule};
 use crate::descriptor::{DescriptorKind, HasLayout, Vmsa128};
 use crate::descriptor::{
     Vmsa128Stage1LeafFields, Vmsa128Stage1TableFields, Vmsa128Stage2LeafFields,
     Vmsa128Stage2TableFields,
 };
+use crate::table::TableTransition;
 use crate::translation::{Stage1, Stage2};
 
-use super::{DescriptorLayout, RawFieldBlock};
+use super::{DescriptorError, DescriptorLayout, NextTableDescriptor, RawFieldBlock};
 
 const VMSA128_VALID: u128 = 1 << 0;
 const VMSA128_ADDR_FIELD_MASK: u128 = 0x00FF_FFFF_FFFF_F000;
@@ -39,7 +40,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage1, G> for Vmsa128Layo
     const ADDRESS_FIELD_MASK: u128 = VMSA128_ADDR_FIELD_MASK;
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
-        vmsa128_kind(raw, level)
+        vmsa128_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u128, level: Level) -> Self::LeafFields {
@@ -56,12 +57,33 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage1, G> for Vmsa128Layo
         encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u128 {
-        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high)
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa128, G>,
+        fields: Self::TableFields,
+    ) -> Result<u128, DescriptorError> {
+        let high = table_high_with_transition_skl::<G>(transition, fields.high)?;
+        Ok(encode_vmsa128_table_blocks(table_pa, fields.low, high))
     }
 
     fn output_address(raw: u128, level: Level) -> PhysAddr {
-        decode_vmsa128_output_address(raw, level)
+        decode_vmsa128_output_address::<G>(raw, level)
+    }
+
+    fn table_address(raw: u128, level: Level) -> PhysAddr {
+        decode_vmsa128_table_address::<G>(raw, level)
+    }
+
+    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor> {
+        Some(NextTableDescriptor {
+            address: decode_vmsa128_table_address::<G>(raw, level),
+            level: next_vmsa128_table_level(raw, level)?,
+            stride_count: vmsa128_raw_skl(raw) + 1,
+        })
+    }
+
+    fn supports_table_transition(transition: TableTransition<Vmsa128, G>) -> bool {
+        vmsa128_transition_skl::<G>(transition).is_some()
     }
 }
 
@@ -72,7 +94,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage2, G> for Vmsa128Layo
     const ADDRESS_FIELD_MASK: u128 = VMSA128_ADDR_FIELD_MASK;
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
-        vmsa128_kind(raw, level)
+        vmsa128_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u128, level: Level) -> Self::LeafFields {
@@ -89,21 +111,87 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage2, G> for Vmsa128Layo
         encode_vmsa128_leaf_blocks(output_pa, level, fields.low, fields.high)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u128 {
-        encode_vmsa128_table_blocks(table_pa, fields.low, fields.high)
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa128, G>,
+        fields: Self::TableFields,
+    ) -> Result<u128, DescriptorError> {
+        let high = table_high_with_transition_skl::<G>(transition, fields.high)?;
+        Ok(encode_vmsa128_table_blocks(table_pa, fields.low, high))
     }
 
     fn output_address(raw: u128, level: Level) -> PhysAddr {
-        decode_vmsa128_output_address(raw, level)
+        decode_vmsa128_output_address::<G>(raw, level)
+    }
+
+    fn table_address(raw: u128, level: Level) -> PhysAddr {
+        decode_vmsa128_table_address::<G>(raw, level)
+    }
+
+    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor> {
+        Some(NextTableDescriptor {
+            address: decode_vmsa128_table_address::<G>(raw, level),
+            level: next_vmsa128_table_level(raw, level)?,
+            stride_count: vmsa128_raw_skl(raw) + 1,
+        })
+    }
+
+    fn supports_table_transition(transition: TableTransition<Vmsa128, G>) -> bool {
+        vmsa128_transition_skl::<G>(transition).is_some()
     }
 }
 
-fn vmsa128_kind(raw: u128, level: Level) -> DescriptorKind {
+pub fn vmsa128_supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
+    let skip = Level::L3.as_i8() - level.as_i8();
+    (0..=3).contains(&skip) && vmsa128_skl_supported(granule, skip as u8)
+}
+
+pub fn vmsa128_skl_supported(granule: GranuleKind, skl: u8) -> bool {
+    !matches!(
+        (granule, skl),
+        (GranuleKind::Size16KiB | GranuleKind::Size64KiB, 3)
+    )
+}
+
+fn vmsa128_transition_skl<G: TranslationGranule>(
+    transition: TableTransition<Vmsa128, G>,
+) -> Option<u8> {
+    let level_step = transition.level_step();
+    if level_step == 0 || transition.child().stride_count().raw() != level_step {
+        return None;
+    }
+
+    let skl = level_step - 1;
+    vmsa128_skl_supported(G::KIND, skl).then_some(skl)
+}
+
+fn table_high_with_transition_skl<G: TranslationGranule>(
+    transition: TableTransition<Vmsa128, G>,
+    high: RawFieldBlock<20>,
+) -> Result<RawFieldBlock<20>, DescriptorError> {
+    let Some(skl) = vmsa128_transition_skl::<G>(transition) else {
+        return Err(DescriptorError::InvalidTableTransition {
+            parent_level: transition.parent_level(),
+            child_level: transition.child_level(),
+            stride_count: transition.child().stride_count().raw(),
+        });
+    };
+
+    Ok(raw_block(
+        (high.bits() & !(0b11 << 1)) | (u128::from(skl) << 1),
+    ))
+}
+
+fn vmsa128_kind(granule: GranuleKind, raw: u128, level: Level) -> DescriptorKind {
     if raw & VMSA128_VALID == 0 {
         return DescriptorKind::Invalid;
     }
 
     let skl = ((raw & VMSA128_SKL_MASK) >> VMSA128_SKL_SHIFT) as i8;
+    if !vmsa128_skl_supported(granule, skl as u8) {
+        return DescriptorKind::Invalid;
+    }
+
     let sum = level.as_i8() + skl;
 
     if sum < Level::L3.as_i8() {
@@ -116,6 +204,20 @@ fn vmsa128_kind(raw: u128, level: Level) -> DescriptorKind {
         }
     } else {
         DescriptorKind::Invalid
+    }
+}
+
+fn vmsa128_raw_skl(raw: u128) -> u8 {
+    ((raw & VMSA128_SKL_MASK) >> VMSA128_SKL_SHIFT) as u8
+}
+
+fn next_vmsa128_table_level(raw: u128, level: Level) -> Option<Level> {
+    let next = level.as_i8().checked_add(vmsa128_raw_skl(raw) as i8 + 1)?;
+    let next = Level::new(next);
+    if next.is_after(Level::L3) {
+        None
+    } else {
+        Some(next)
     }
 }
 
@@ -155,8 +257,32 @@ fn encode_vmsa128_table_blocks(
         | VMSA128_VALID
 }
 
-fn decode_vmsa128_output_address(raw: u128, _level: Level) -> PhysAddr {
-    PhysAddr((raw & VMSA128_ADDR_FIELD_MASK) as u64)
+fn decode_vmsa128_output_address<G: TranslationGranule>(raw: u128, level: Level) -> PhysAddr {
+    let address = (raw & VMSA128_ADDR_FIELD_MASK) as u64;
+    let leaf_size_bits = vmsa128_leaf_size_bits::<G>(level);
+    PhysAddr(align_down_bits(address, leaf_size_bits))
+}
+
+fn decode_vmsa128_table_address<G: TranslationGranule>(raw: u128, _level: Level) -> PhysAddr {
+    let address = (raw & VMSA128_ADDR_FIELD_MASK) as u64;
+    let stride_count = vmsa128_raw_skl(raw) + 1;
+    let table_size_bits = G::SHIFT - 4;
+    let table_size_bits = 4 + table_size_bits * stride_count;
+    PhysAddr(align_down_bits(address, table_size_bits))
+}
+
+fn vmsa128_leaf_size_bits<G: TranslationGranule>(level: Level) -> u8 {
+    let stride = G::SHIFT - 4;
+    let levels = (Level::L3.as_i8() - level.as_i8()).max(0) as u8;
+    G::SHIFT + stride * levels
+}
+
+fn align_down_bits(address: u64, bits: u8) -> u64 {
+    if bits >= u64::BITS as u8 {
+        0
+    } else {
+        address & !((1u64 << bits) - 1)
+    }
 }
 
 fn leaf_attr_index(low: RawFieldBlock<10>) -> RawFieldBlock<4> {
@@ -216,7 +342,7 @@ fn table_nt(low: RawFieldBlock<8>) -> bool {
 }
 
 fn table_a(low: RawFieldBlock<8>) -> bool {
-    low.bits() & (1 << 3) != 0
+    low.bits() & (1 << 6) != 0
 }
 
 fn d128_table_hi_skl(high: RawFieldBlock<20>) -> RawFieldBlock<2> {
@@ -291,7 +417,7 @@ fn pack_leaf_high(
 }
 
 fn pack_table_low(nt: bool, a: bool) -> RawFieldBlock<8> {
-    raw_block(((nt as u128) << 2) | ((a as u128) << 3))
+    raw_block(((nt as u128) << 2) | ((a as u128) << 6))
 }
 
 #[allow(clippy::too_many_arguments)]

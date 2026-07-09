@@ -64,6 +64,8 @@ impl Stage1PasModel for RootPas {
 }
 
 pub trait Stage2PasContext: Copy + 'static {
+    type OutputAddressSpaceAttr: Copy + Debug + Eq + PartialEq;
+
     const SPACE: TranslationSpace;
     const IPA_SPACE: IpaSpace;
     const REQUIRED_FEATURES: VmsaFeatures;
@@ -73,6 +75,8 @@ pub trait Stage2PasContext: Copy + 'static {
 pub struct NonSecureIpaContext;
 
 impl Stage2PasContext for NonSecureIpaContext {
+    type OutputAddressSpaceAttr = ();
+
     const SPACE: TranslationSpace = TranslationSpace::NonSecure;
     const IPA_SPACE: IpaSpace = IpaSpace::NonSecure;
     const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE;
@@ -82,6 +86,8 @@ impl Stage2PasContext for NonSecureIpaContext {
 pub struct SecureIpaContext;
 
 impl Stage2PasContext for SecureIpaContext {
+    type OutputAddressSpaceAttr = OutputAddressSpace;
+
     const SPACE: TranslationSpace = TranslationSpace::Secure;
     const IPA_SPACE: IpaSpace = IpaSpace::Secure;
     const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE.with_secure_state().with_sel2();
@@ -91,6 +97,8 @@ impl Stage2PasContext for SecureIpaContext {
 pub struct SecureNonSecureIpaContext;
 
 impl Stage2PasContext for SecureNonSecureIpaContext {
+    type OutputAddressSpaceAttr = OutputAddressSpace;
+
     const SPACE: TranslationSpace = TranslationSpace::Secure;
     const IPA_SPACE: IpaSpace = IpaSpace::NonSecure;
     const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE.with_secure_state().with_sel2();
@@ -100,6 +108,8 @@ impl Stage2PasContext for SecureNonSecureIpaContext {
 pub struct RealmIpaContext;
 
 impl Stage2PasContext for RealmIpaContext {
+    type OutputAddressSpaceAttr = OutputAddressSpace;
+
     const SPACE: TranslationSpace = TranslationSpace::Realm;
     const IPA_SPACE: IpaSpace = IpaSpace::Realm;
     const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE.with_rme();

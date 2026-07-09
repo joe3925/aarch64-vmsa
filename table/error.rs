@@ -33,6 +33,10 @@ pub enum AccessError {
         expected: u8,
         actual: u8,
     },
+    TablePathTerminalLevelMismatch {
+        expected: Level,
+        actual: Level,
+    },
     TablePathIndexOutOfRange {
         index: usize,
         entries: usize,
@@ -40,6 +44,25 @@ pub enum AccessError {
     TablePathCapacityExceeded {
         len: u8,
         index_bits: u8,
+    },
+    TablePathStrideCapacityExceeded {
+        len: u8,
+        stride_bits: u8,
+    },
+    TableAllocationLayoutOverflow {
+        entries: usize,
+        descriptor_bytes: usize,
+    },
+    InvalidTableTransition {
+        parent_level: Level,
+        child_level: Level,
+        stride_count: u8,
+    },
+    InvalidTableLevelStep {
+        step: u8,
+    },
+    InvalidTableStrideCount {
+        stride_count: u8,
     },
     TablePathLevelUnavailable {
         root_level: Level,

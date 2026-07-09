@@ -62,6 +62,11 @@ pub trait PermissionModel: Copy + 'static {
     const REQUIRED_FEATURES: VmsaFeatures;
 }
 
+pub trait Stage2PermissionModel:
+    PermissionModel<LeafPermissions = Stage2LeafPermissions, TablePermissions = Stage2TablePermissions>
+{
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct El1And0Permissions;
 
@@ -126,3 +131,20 @@ impl PermissionModel for Stage2Permissions {
     const HAS_TTBR1: bool = false;
     const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE.with_el2().with_stage2();
 }
+
+impl Stage2PermissionModel for Stage2Permissions {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Stage2XnxPermissions;
+
+impl PermissionModel for Stage2XnxPermissions {
+    type LeafPermissions = Stage2LeafPermissions;
+    type TablePermissions = Stage2TablePermissions;
+
+    const OWNER: RegimeOwner = RegimeOwner::El2;
+    const SUPPORTS_EL0: bool = false;
+    const HAS_TTBR1: bool = false;
+    const REQUIRED_FEATURES: VmsaFeatures = VmsaFeatures::NONE.with_el2().with_stage2().with_xnx();
+}
+
+impl Stage2PermissionModel for Stage2XnxPermissions {}

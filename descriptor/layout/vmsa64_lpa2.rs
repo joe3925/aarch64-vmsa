@@ -7,10 +7,11 @@ use crate::descriptor::{
     Vmsa64Lpa2Stage1LeafFields, Vmsa64Lpa2Stage2LeafFields, Vmsa64Stage1TableFields,
     Vmsa64Stage2TableFields,
 };
+use crate::table::TableTransition;
 use crate::translation::{Stage1, Stage2};
 
 use super::vmsa64::{VMSA64_TABLE_OR_PAGE, VMSA64_VALID, vmsa64_kind, vmsa64_leaf_kind_bits};
-use super::{DescriptorLayout, RawFieldBlock};
+use super::{DescriptorError, DescriptorLayout, RawFieldBlock, require_step_by_one_transition};
 
 const VMSA64_LPA2_ADDR_FIELD_MASK: u128 = 0x0003_FFFF_FFFF_F300;
 
@@ -34,7 +35,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64Lpa2, Stage1, G>
     const ADDRESS_FIELD_MASK: u128 = VMSA64_LPA2_ADDR_FIELD_MASK;
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(raw, level)
+        vmsa64_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
@@ -66,16 +67,21 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64Lpa2, Stage1, G>
             | (fields.guarded as u64) << 50
             | (fields.dirty_bit_modifier as u64) << 51
             | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(level)
+            | vmsa64_leaf_kind_bits(G::KIND, level)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa64Lpa2, G>,
+        fields: Self::TableFields,
+    ) -> Result<u64, DescriptorError> {
+        require_step_by_one_transition(transition)?;
         let address = encode_lpa2_address(table_pa);
-        address
+        Ok(address
             | (fields.software.bits() as u64) << 55
             | (fields.upper.bits() as u64) << 59
             | VMSA64_VALID
-            | VMSA64_TABLE_OR_PAGE
+            | VMSA64_TABLE_OR_PAGE)
     }
 
     fn output_address(raw: u64, _level: Level) -> PhysAddr {
@@ -92,7 +98,7 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64Lpa2, Stage2, G>
     const ADDRESS_FIELD_MASK: u128 = VMSA64_LPA2_ADDR_FIELD_MASK;
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(raw, level)
+        vmsa64_kind(G::KIND, raw, level)
     }
 
     fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
@@ -124,12 +130,17 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64Lpa2, Stage2, G>
             | ((upper >> 1) & 0b11) << 53
             | (fields.dirty_bit_modifier as u64) << 51
             | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(level)
+            | vmsa64_leaf_kind_bits(G::KIND, level)
     }
 
-    fn table_descriptor(table_pa: PhysAddr, fields: Self::TableFields) -> u64 {
+    fn table_descriptor(
+        table_pa: PhysAddr,
+        transition: TableTransition<Vmsa64Lpa2, G>,
+        fields: Self::TableFields,
+    ) -> Result<u64, DescriptorError> {
+        require_step_by_one_transition(transition)?;
         let address = encode_lpa2_address(table_pa);
-        address | (fields.software.bits() as u64) << 55 | VMSA64_VALID | VMSA64_TABLE_OR_PAGE
+        Ok(address | (fields.software.bits() as u64) << 55 | VMSA64_VALID | VMSA64_TABLE_OR_PAGE)
     }
 
     fn output_address(raw: u64, _level: Level) -> PhysAddr {

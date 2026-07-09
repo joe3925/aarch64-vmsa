@@ -49,9 +49,9 @@ where
         &'a self,
         location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTable<'a, F, G>, Self::Error> {
-        let ptr = self.table_ptr::<F, G>(location.addr)?;
+        let ptr = self.table_ptr::<F, G>(location.addr())?;
 
-        Ok(unsafe { TranslationTable::from_ptr(ptr, location.level) })
+        Ok(unsafe { TranslationTable::from_ptr(ptr, location.shape()) })
     }
 }
 
@@ -64,8 +64,8 @@ where
         &'a mut self,
         location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTableMut<'a, F, G>, Self::Error> {
-        let ptr = self.table_ptr::<F, G>(location.addr)?;
+        let ptr = self.table_ptr::<F, G>(location.addr())?;
 
-        Ok(unsafe { TranslationTableMut::from_ptr(ptr, location.level) })
+        Ok(unsafe { TranslationTableMut::from_ptr(ptr, location.shape()) })
     }
 }

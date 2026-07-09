@@ -54,6 +54,7 @@ pub enum AttrError {
         second: AttrKind,
     },
     UnencodablePermissions,
+    InvalidStage2ExecuteNever,
     InvalidOutputAddressSpace,
     InvalidShareability,
     ShareabilityMismatch {

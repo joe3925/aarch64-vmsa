@@ -316,28 +316,6 @@ where
             }
         }
     }
-
-    pub(crate) fn encode_d128_output_address_space(
-        &self,
-        space: OutputAddressSpace,
-    ) -> Result<bool, AttrError> {
-        let configured = self.config.output_address_space();
-        if space == configured {
-            Ok(false)
-        } else if space == OutputAddressSpace::NonSecure {
-            Ok(true)
-        } else {
-            Err(AttrError::InvalidOutputAddressSpace)
-        }
-    }
-
-    pub(crate) fn decode_d128_output_address_space(&self, non_secure: bool) -> OutputAddressSpace {
-        if non_secure {
-            OutputAddressSpace::NonSecure
-        } else {
-            self.config.output_address_space()
-        }
-    }
 }
 
 fn mair_entry(register: u64, index: u8) -> u8 {

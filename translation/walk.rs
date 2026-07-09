@@ -5,8 +5,8 @@ use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorLayout;
 use crate::descriptor::{DescriptorFormat, DescriptorKind, HasLayout};
 use crate::table::{
-    AccessError, TableAccess, TableAccessLocation, TableAddressError, TableGeometry, TablePhysAddr,
-    TableWalkPath, TranslationTable,
+    AccessError, NextTable, TableAccess, TableAccessLocation, TableAddressError, TableCursor,
+    TableGeometry, TablePhysAddr, TableWalkPath, TranslationTable,
 };
 
 unsafe impl<'access, F, G, A> TableAccess<F, G> for &'access A
@@ -120,11 +120,7 @@ where
     G: TranslationGranule,
 {
     input: WalkInputAddr,
-    root: TablePhysAddr<G>,
-    root_level: Level,
-    current: TablePhysAddr<G>,
-    level: Level,
-    path: TableWalkPath<F, G>,
+    table: TableCursor<F, G>,
 }
 
 impl<F, G> WalkCursor<F, G>
@@ -141,11 +137,7 @@ where
 
         Ok(Self {
             input,
-            root,
-            root_level,
-            current: root,
-            level: root_level,
-            path: TableWalkPath::root(),
+            table: TableCursor::root(root, root_level),
         })
     }
 
@@ -154,53 +146,49 @@ where
     }
 
     pub const fn root(self) -> TablePhysAddr<G> {
-        self.root
+        self.table.root_addr()
     }
 
     pub const fn root_level(self) -> Level {
-        self.root_level
+        self.table.root_level()
     }
 
     pub const fn current(self) -> TablePhysAddr<G> {
-        self.current
+        self.table.current()
     }
 
     pub const fn level(self) -> Level {
-        self.level
+        self.table.level()
+    }
+
+    pub const fn table(self) -> TableCursor<F, G> {
+        self.table
     }
 
     pub const fn path(self) -> TableWalkPath<F, G> {
-        self.path
+        self.table.path()
     }
 
     pub fn location(self) -> Result<TableAccessLocation<F, G>, AccessError> {
-        TableAccessLocation::child(self.current, self.root_level, self.level, self.path)
+        self.table.location()
     }
 
     pub fn entry_index(self) -> Result<usize, WalkCursorError> {
-        TableGeometry::<F, G>::index_at_level_raw(self.input.raw(), self.level)
-            .ok_or(WalkCursorError::InvalidLevel { level: self.level })
+        self.table
+            .entry_index(self.input.raw())
+            .map_err(|_| WalkCursorError::InvalidLevel {
+                level: self.level(),
+            })
     }
 
-    pub fn descend(self, entry_index: usize, next: TablePhysAddr<G>) -> Result<Self, AccessError> {
-        if self.level == F::FINAL_LEVEL {
-            return Err(AccessError::InvalidTableLevel {
-                root_level: self.root_level,
-                level: self.level,
-                final_level: F::FINAL_LEVEL,
-            });
-        }
-
-        let mut path = self.path;
-        path.push(self.root_level, self.level, entry_index)?;
-
+    pub fn next_table(
+        self,
+        entry_index: usize,
+        next: NextTable<F, G>,
+    ) -> Result<Self, AccessError> {
         Ok(Self {
             input: self.input,
-            root: self.root,
-            root_level: self.root_level,
-            current: next,
-            level: self.level.next(),
-            path,
+            table: self.table.next_table(entry_index, next)?,
         })
     }
 }
@@ -316,7 +304,7 @@ where
     raw: F::Raw,
     level: Level,
     entry_index: usize,
-    next: TablePhysAddr<G>,
+    next: NextTable<F, G>,
     next_cursor: WalkCursor<F, G>,
     next_location: TableAccessLocation<F, G>,
     fields: WalkTableFieldsOf<F, P, G>,
@@ -349,6 +337,10 @@ where
     }
 
     pub const fn next(&self) -> TablePhysAddr<G> {
+        self.next.addr()
+    }
+
+    pub const fn next_table(&self) -> NextTable<F, G> {
         self.next
     }
 
@@ -597,16 +589,20 @@ where
             return Err(WalkError::TableDescriptorAtFinalLevel { level });
         }
 
-        let next = TablePhysAddr::<G>::new(<WalkLayoutOf<F, P, G> as DescriptorLayout<
-            F,
-            P::Stage,
-            G,
-        >>::output_address(raw, level))?;
         let fields =
             <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::decode_table_fields(
                 raw, level,
             );
-        let next_cursor = cursor.descend(entry_index, next)?;
+        let next_descriptor =
+            <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::next_table(raw, level)
+                .ok_or(WalkError::TableDescriptorAtFinalLevel { level })?;
+        let next_addr = TablePhysAddr::<G>::new(next_descriptor.address)?;
+        let next = NextTable::<F, G>::new(
+            next_addr,
+            next_descriptor.level,
+            next_descriptor.stride_count,
+        )?;
+        let next_cursor = cursor.next_table(entry_index, next)?;
         let next_location = next_cursor.location()?;
 
         Ok(WalkStep::Table(WalkTable {

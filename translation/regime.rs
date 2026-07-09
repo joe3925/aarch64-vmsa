@@ -1,9 +1,11 @@
+use core::marker::PhantomData;
+
 use crate::arch::VmsaFeatures;
 use crate::attrs::{
     AttributeProfile, El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions,
     FixedNonSecurePas, NonSecureIpaContext, RealmIpaContext, RealmPas, RootPas, SecureIpaContext,
-    SecureNonSecureIpaContext, SecureSelectablePas, Stage1Profile, Stage2Permissions,
-    Stage2Profile,
+    SecureNonSecureIpaContext, SecureSelectablePas, Stage1Profile, Stage2PermissionModel,
+    Stage2Permissions, Stage2Profile,
 };
 use crate::translation::{Stage1Walk, Stage2Walk, TranslationWalkProfile};
 
@@ -126,35 +128,47 @@ impl TranslationRegime for RealmEl2HostStage1 {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NonSecureEl2Stage2;
+pub struct NonSecureEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SecureEl2SecureIpaStage2;
+pub struct SecureEl2SecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SecureEl2NonSecureIpaStage2;
+pub struct SecureEl2NonSecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RealmEl2Stage2;
+pub struct RealmEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
 
-impl TranslationRegime for NonSecureEl2Stage2 {
+impl<P> TranslationRegime for NonSecureEl2Stage2<P>
+where
+    P: Stage2PermissionModel,
+{
     type WalkProfile = Stage2Walk;
-    type AttrProfile = Stage2Profile<Stage2Permissions, NonSecureIpaContext>;
+    type AttrProfile = Stage2Profile<P, NonSecureIpaContext>;
 }
 
-impl TranslationRegime for SecureEl2SecureIpaStage2 {
+impl<P> TranslationRegime for SecureEl2SecureIpaStage2<P>
+where
+    P: Stage2PermissionModel,
+{
     type WalkProfile = Stage2Walk;
-    type AttrProfile = Stage2Profile<Stage2Permissions, SecureIpaContext>;
+    type AttrProfile = Stage2Profile<P, SecureIpaContext>;
 }
 
-impl TranslationRegime for SecureEl2NonSecureIpaStage2 {
+impl<P> TranslationRegime for SecureEl2NonSecureIpaStage2<P>
+where
+    P: Stage2PermissionModel,
+{
     type WalkProfile = Stage2Walk;
-    type AttrProfile = Stage2Profile<Stage2Permissions, SecureNonSecureIpaContext>;
+    type AttrProfile = Stage2Profile<P, SecureNonSecureIpaContext>;
 }
 
-impl TranslationRegime for RealmEl2Stage2 {
+impl<P> TranslationRegime for RealmEl2Stage2<P>
+where
+    P: Stage2PermissionModel,
+{
     type WalkProfile = Stage2Walk;
-    type AttrProfile = Stage2Profile<Stage2Permissions, RealmIpaContext>;
+    type AttrProfile = Stage2Profile<P, RealmIpaContext>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

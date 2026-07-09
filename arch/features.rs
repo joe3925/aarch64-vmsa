@@ -7,6 +7,7 @@ pub struct VmsaFeatures {
     pub sel2: bool,
     pub rme: bool,
     pub stage2: bool,
+    pub xnx: bool,
     pub lpa2: bool,
     pub d128: bool,
     pub extended_input_address: bool,
@@ -22,6 +23,7 @@ impl VmsaFeatures {
         sel2: false,
         rme: false,
         stage2: false,
+        xnx: false,
         lpa2: false,
         d128: false,
         extended_input_address: false,
@@ -39,6 +41,7 @@ impl VmsaFeatures {
             sel2: self.sel2 || other.sel2,
             rme: self.rme || other.rme,
             stage2: self.stage2 || other.stage2,
+            xnx: self.xnx || other.xnx,
             lpa2: self.lpa2 || other.lpa2,
             d128: self.d128 || other.d128,
             extended_input_address: self.extended_input_address || other.extended_input_address,
@@ -53,6 +56,7 @@ impl VmsaFeatures {
             && (!required.sel2 || self.sel2)
             && (!required.rme || self.rme)
             && (!required.stage2 || self.stage2)
+            && (!required.xnx || self.xnx)
             && (!required.lpa2 || self.lpa2)
             && (!required.d128 || self.d128)
             && (!required.extended_input_address || self.extended_input_address)
@@ -67,8 +71,13 @@ impl VmsaFeatures {
         let mmfr2 = read_id_aa64mmfr2_el1();
         let mmfr3 = read_id_aa64mmfr3_el1();
 
-        let el2 = field(pfr0, 8) != 0xf;
-        let el3 = field(pfr0, 12) != 0xf;
+        Self::from_id_registers(pfr0, mmfr0, mmfr1, mmfr2, mmfr3)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    const fn from_id_registers(pfr0: u64, mmfr0: u64, mmfr1: u64, mmfr2: u64, mmfr3: u64) -> Self {
+        let el2 = field(pfr0, 8) != 0;
+        let el3 = field(pfr0, 12) != 0;
         let d128 = field(mmfr3, 32) != 0;
         let lpa2 = field(mmfr0, 28) == 1
             || field(mmfr0, 20) == 2
@@ -83,6 +92,7 @@ impl VmsaFeatures {
             sel2: field(pfr0, 36) != 0,
             rme: field(pfr0, 52) != 0,
             stage2: el2,
+            xnx: field(mmfr1, 28) != 0,
             lpa2,
             d128,
             extended_input_address: field(mmfr2, 16) != 0 || lpa2 || d128,
@@ -127,6 +137,11 @@ impl VmsaFeatures {
 
     pub const fn with_stage2(mut self) -> Self {
         self.stage2 = true;
+        self
+    }
+
+    pub const fn with_xnx(mut self) -> Self {
+        self.xnx = true;
         self
     }
 

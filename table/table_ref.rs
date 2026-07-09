@@ -5,7 +5,7 @@ use crate::address::VirtAddr;
 use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 
-use super::{TableError, TableGeometry};
+use super::{TableError, TableGeometry, TableShape, TableStrideCount};
 
 #[derive(Clone, Copy, Debug)]
 pub struct TranslationTable<'a, F, G>
@@ -14,7 +14,7 @@ where
     G: TranslationGranule,
 {
     base: NonNull<F::Raw>,
-    level: Level,
+    shape: TableShape<F, G>,
     _marker: PhantomData<(&'a F::Raw, G)>,
 }
 
@@ -25,7 +25,7 @@ where
     G: TranslationGranule,
 {
     base: NonNull<F::Raw>,
-    level: Level,
+    shape: TableShape<F, G>,
     _marker: PhantomData<(&'a mut F::Raw, G)>,
 }
 
@@ -34,16 +34,24 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub unsafe fn from_ptr(base: NonNull<F::Raw>, level: Level) -> Self {
+    pub unsafe fn from_ptr(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
-            level,
+            shape,
             _marker: PhantomData,
         }
     }
 
     pub const fn level(&self) -> Level {
-        self.level
+        self.shape.level()
+    }
+
+    pub const fn stride_count(&self) -> TableStrideCount {
+        self.shape.stride_count()
+    }
+
+    pub const fn shape(&self) -> TableShape<F, G> {
+        self.shape
     }
 
     pub const fn base(&self) -> NonNull<F::Raw> {
@@ -51,7 +59,7 @@ where
     }
 
     pub fn entries(&self) -> usize {
-        TableGeometry::<F, G>::entries()
+        self.shape.entries()
     }
 
     pub fn entry_ptr(&self, index: usize) -> Option<NonNull<F::Raw>> {
@@ -79,11 +87,11 @@ where
     }
 
     pub fn level_shift(&self) -> u8 {
-        TableGeometry::<F, G>::level_shift(self.level)
+        TableGeometry::<F, G>::level_shift(self.level())
     }
 
     pub fn index_for_va(&self, va: VirtAddr) -> Option<usize> {
-        TableGeometry::<F, G>::index_at_level_raw(va.0, self.level)
+        self.shape.index_for_input(va.0)
     }
 }
 
@@ -92,16 +100,24 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub unsafe fn from_ptr(base: NonNull<F::Raw>, level: Level) -> Self {
+    pub unsafe fn from_ptr(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
-            level,
+            shape,
             _marker: PhantomData,
         }
     }
 
     pub const fn level(&self) -> Level {
-        self.level
+        self.shape.level()
+    }
+
+    pub const fn stride_count(&self) -> TableStrideCount {
+        self.shape.stride_count()
+    }
+
+    pub const fn shape(&self) -> TableShape<F, G> {
+        self.shape
     }
 
     pub const fn base(&self) -> NonNull<F::Raw> {
@@ -109,11 +125,11 @@ where
     }
 
     pub fn as_table(&self) -> TranslationTable<'_, F, G> {
-        unsafe { TranslationTable::from_ptr(self.base, self.level) }
+        unsafe { TranslationTable::from_ptr(self.base, self.shape) }
     }
 
     pub fn entries(&self) -> usize {
-        TableGeometry::<F, G>::entries()
+        self.shape.entries()
     }
 
     pub fn entry_ptr(&self, index: usize) -> Option<NonNull<F::Raw>> {
@@ -156,10 +172,10 @@ where
     }
 
     pub fn level_shift(&self) -> u8 {
-        TableGeometry::<F, G>::level_shift(self.level)
+        TableGeometry::<F, G>::level_shift(self.level())
     }
 
     pub fn index_for_va(&self, va: VirtAddr) -> Option<usize> {
-        TableGeometry::<F, G>::index_at_level_raw(va.0, self.level)
+        self.shape.index_for_input(va.0)
     }
 }

@@ -4,7 +4,7 @@ use crate::arch::VmsaFeatures;
 use crate::translation::{IpaSpace, RegimeOwner, TranslationSpace};
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
-use super::{PermissionModel, Stage1PasModel, Stage2PasContext};
+use super::{PermissionModel, Stage1PasModel, Stage2PasContext, Stage2PermissionModel};
 
 pub trait AttributeProfile<S>: Copy + 'static
 where
@@ -45,7 +45,7 @@ pub struct Stage2Profile<P, C>(PhantomData<fn() -> (P, C)>);
 
 impl<P, C> AttributeProfile<Stage2> for Stage2Profile<P, C>
 where
-    P: PermissionModel,
+    P: Stage2PermissionModel,
     C: Stage2PasContext,
 {
     const OWNER: RegimeOwner = P::OWNER;

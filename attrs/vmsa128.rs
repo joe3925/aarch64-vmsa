@@ -1,36 +1,10 @@
 use core::marker::PhantomData;
 
-use crate::descriptor::RawFieldBlock;
-
 use super::{
     DirtyState, EffectivePermissions, FeatureDependentLeafAlias, MemoryAttributes,
-    MemoryTransience, OutputAddressSpace, PermissionModel, Shareability, Stage1PasModel,
-    Stage2PasContext, Stage2TablePermissions,
+    MemoryTransience, PermissionModel, Shareability, Stage1PasModel, Stage2PasContext,
+    Stage2TablePermissions,
 };
-
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum D128SkipLevels {
-    None = 0,
-    One = 1,
-    Two = 2,
-    Three = 3,
-}
-
-impl D128SkipLevels {
-    pub(crate) const fn from_bits(bits: u128) -> Self {
-        match bits & 0b11 {
-            0 => Self::None,
-            1 => Self::One,
-            2 => Self::Two,
-            _ => Self::Three,
-        }
-    }
-
-    pub(crate) const fn raw(self) -> RawFieldBlock<2> {
-        RawFieldBlock::from_masked(self as u128)
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa128Stage1LeafAttrs<A>
@@ -60,7 +34,6 @@ where
     pub pas: A::TableAttr,
     pub transience: MemoryTransience,
     pub access_flag: bool,
-    pub skip_levels: D128SkipLevels,
     pub discharge: bool,
     pub protected: bool,
 }
@@ -80,7 +53,7 @@ where
     pub contiguous: bool,
     pub guarded: bool,
     pub assured_only: bool,
-    pub output_address_space: OutputAddressSpace,
+    pub output_address_space: X::OutputAddressSpaceAttr,
     context: PhantomData<X>,
 }
 
@@ -100,7 +73,7 @@ where
         contiguous: bool,
         guarded: bool,
         assured_only: bool,
-        output_address_space: OutputAddressSpace,
+        output_address_space: X::OutputAddressSpaceAttr,
     ) -> Self {
         Self {
             memory,
@@ -127,10 +100,9 @@ where
     pub permissions: Stage2TablePermissions,
     pub transience: MemoryTransience,
     pub access_flag: bool,
-    pub skip_levels: D128SkipLevels,
     pub discharge: bool,
     pub assured_only: bool,
-    pub output_address_space: OutputAddressSpace,
+    pub output_address_space: X::OutputAddressSpaceAttr,
     context: PhantomData<X>,
 }
 
@@ -143,16 +115,14 @@ where
         permissions: Stage2TablePermissions,
         transience: MemoryTransience,
         access_flag: bool,
-        skip_levels: D128SkipLevels,
         discharge: bool,
         assured_only: bool,
-        output_address_space: OutputAddressSpace,
+        output_address_space: X::OutputAddressSpaceAttr,
     ) -> Self {
         Self {
             permissions,
             transience,
             access_flag,
-            skip_levels,
             discharge,
             assured_only,
             output_address_space,

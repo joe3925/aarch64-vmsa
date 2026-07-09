@@ -1,14 +1,14 @@
 use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
-    AttrError, AttrKind, AttributeCodec, AttributeResolver, D128SkipLevels, DirtyState,
-    LiveAttributeConfiguration, MairIndex, MemoryTransience, PermissionIndirectionIndex,
-    PermissionOverlayIndex, ResolvedD128Permissions, Shareability, Stage1Profile,
-    Stage2MemoryEncoding, Stage2PasContext, Stage2Permissions, Stage2Profile,
+    AttrError, AttrKind, AttributeCodec, AttributeResolver, DirtyState, LiveAttributeConfiguration,
+    MairIndex, MemoryTransience, PermissionIndirectionIndex, PermissionOverlayIndex,
+    ResolvedD128Permissions, Shareability, Stage1Profile, Stage2MemoryEncoding, Stage2Profile,
     Stage2TablePermissions, Vmsa128Stage1LeafAttrs, Vmsa128Stage1TableAttrs,
     Vmsa128Stage2LeafAttrs, Vmsa128Stage2TableAttrs,
 };
 use crate::descriptor::RawFieldBlock;
 use crate::descriptor::Vmsa128;
+use crate::descriptor::layout::vmsa128_skl_supported;
 use crate::descriptor::{
     Vmsa128Stage1LeafFields, Vmsa128Stage1TableFields, Vmsa128Stage2LeafFields,
     Vmsa128Stage2TableFields,
@@ -16,7 +16,8 @@ use crate::descriptor::{
 use crate::translation::{Stage1, Stage2};
 
 use super::common::{
-    Stage1PasCodec, Stage1PermissionCodec, decode_stage2_data, encode_stage2_data,
+    Stage1PasCodec, Stage1PermissionCodec, Stage2PasCodec, Stage2PermissionCodec,
+    decode_stage2_data, encode_stage2_data,
 };
 
 impl<P, A, G, C> AttributeCodec<Vmsa128, Stage1, G, C> for Stage1Profile<P, A>
@@ -42,7 +43,7 @@ where
         }
         let (non_secure, nse) = A::encode_leaf_pas(attrs.pas)?;
         let alias_bit = if A::USES_NSE { nse } else { !attrs.global };
-        let skip_levels = leaf_skip_levels(level);
+        let skip_levels = leaf_skip_levels::<G>(level)?;
         let memory = resolver.resolve_stage1_memory::<4>(attrs.memory)?;
         let permissions = resolver.resolve_d128_permissions(attrs.permissions)?;
         Ok(Vmsa128Stage1LeafFields::from_arch_fields(
@@ -95,7 +96,7 @@ where
         Ok(Vmsa128Stage1TableFields::from_arch_fields(
             attrs.transience.not_transient_bit(),
             attrs.access_flag,
-            attrs.skip_levels.raw(),
+            RawFieldBlock::from_masked(0),
             attrs.discharge,
             attrs.protected,
             permissions.pxn_table,
@@ -120,16 +121,16 @@ where
             pas: A::decode_table_pas(fields.nstable()),
             transience: MemoryTransience::from_not_transient_bit(fields.nt()),
             access_flag: fields.a(),
-            skip_levels: D128SkipLevels::from_bits(fields.skl().bits()),
             discharge: fields.disch(),
             protected: fields.protected(),
         })
     }
 }
 
-impl<X, G, C> AttributeCodec<Vmsa128, Stage2, G, C> for Stage2Profile<Stage2Permissions, X>
+impl<P, X, G, C> AttributeCodec<Vmsa128, Stage2, G, C> for Stage2Profile<P, X>
 where
-    X: Stage2PasContext,
+    P: Stage2PermissionCodec,
+    X: Stage2PasCodec,
     G: TranslationGranule,
     C: LiveAttributeConfiguration,
 {
@@ -145,7 +146,7 @@ where
         let permissions = resolver.resolve_d128_permissions(attrs.permissions)?;
         let alias = resolver.encode_d128_stage2_alias(attrs.alias)?;
         let output_address_space =
-            resolver.encode_d128_output_address_space(attrs.output_address_space)?;
+            X::encode_leaf_output_address_space(resolver, attrs.output_address_space)?;
         Ok(Vmsa128Stage2LeafFields::from_arch_fields(
             RawFieldBlock::from_masked(memory.bits()),
             attrs.transience.not_transient_bit(),
@@ -153,7 +154,7 @@ where
             RawFieldBlock::from_masked(attrs.shareability.bits()),
             attrs.access_flag,
             alias,
-            leaf_skip_levels(level),
+            leaf_skip_levels::<G>(level)?,
             attrs.contiguous,
             attrs.guarded,
             attrs.assured_only,
@@ -183,7 +184,7 @@ where
             fields.contiguous(),
             fields.guarded(),
             fields.assured_only(),
-            resolver.decode_d128_output_address_space(fields.ns()),
+            X::decode_leaf_output_address_space(resolver, fields.ns()),
         ))
     }
 
@@ -193,11 +194,11 @@ where
         _level: Level,
     ) -> Result<Vmsa128Stage2TableFields, AttrError> {
         let output_address_space =
-            resolver.encode_d128_output_address_space(attrs.output_address_space)?;
+            X::encode_table_address_space(resolver, attrs.output_address_space)?;
         Ok(Vmsa128Stage2TableFields::from_arch_fields(
             attrs.transience.not_transient_bit(),
             attrs.access_flag,
-            attrs.skip_levels.raw(),
+            RawFieldBlock::from_masked(0),
             attrs.discharge,
             attrs.assured_only,
             !attrs.permissions.privileged_execute,
@@ -220,16 +221,18 @@ where
             },
             MemoryTransience::from_not_transient_bit(fields.nt()),
             fields.a(),
-            D128SkipLevels::from_bits(fields.skl().bits()),
             fields.disch(),
             fields.assured_only(),
-            resolver.decode_d128_output_address_space(fields.nstable()),
+            X::decode_table_address_space(resolver, fields.nstable()),
         ))
     }
 }
 
-fn leaf_skip_levels(level: Level) -> RawFieldBlock<2> {
+fn leaf_skip_levels<G: TranslationGranule>(level: Level) -> Result<RawFieldBlock<2>, AttrError> {
     let skip = Level::L3.as_i8() - level.as_i8();
-    debug_assert!((0..=3).contains(&skip));
-    RawFieldBlock::from_masked(skip as u128)
+    if !(0..=3).contains(&skip) || !vmsa128_skl_supported(G::KIND, skip as u8) {
+        return Err(AttrError::InvalidD128Configuration);
+    }
+
+    Ok(RawFieldBlock::from_masked(skip as u128))
 }

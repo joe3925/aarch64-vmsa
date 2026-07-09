@@ -2,10 +2,9 @@ use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
     AttrError, AttrKind, AttributeCodec, AttributeResolver, DirtyBitManagement,
     LiveAttributeConfiguration, MairIndex, MemoryAttributes, Shareability, SoftwareDefinedBits,
-    Stage1LeafAttrs, Stage1Profile, Stage1TableAttrs, Stage2LeafAttrs, Stage2LeafPermissions,
-    Stage2MemoryEncoding, Stage2PasContext, Stage2Permissions, Stage2Profile, Stage2TableAttrs,
-    Vmsa64Stage1LeafControls, Vmsa64Stage1TableControls, Vmsa64Stage2LeafControls,
-    Vmsa64Stage2TableControls,
+    Stage1LeafAttrs, Stage1Profile, Stage1TableAttrs, Stage2LeafAttrs, Stage2MemoryEncoding,
+    Stage2Profile, Stage2TableAttrs, Vmsa64Stage1LeafControls, Vmsa64Stage1TableControls,
+    Vmsa64Stage2LeafControls, Vmsa64Stage2TableControls,
 };
 use crate::descriptor::RawFieldBlock;
 use crate::descriptor::Vmsa64;
@@ -15,10 +14,7 @@ use crate::descriptor::{
 };
 use crate::translation::{Stage1, Stage2};
 
-use super::common::{
-    Stage1PasCodec, Stage1PermissionCodec, decode_stage2_data, encode_stage2_data,
-    require_unrestricted_stage2_table, unrestricted_stage2_table_permissions,
-};
+use super::common::{Stage1PasCodec, Stage1PermissionCodec, Stage2PasCodec, Stage2PermissionCodec};
 
 impl<P, A, G, C> AttributeCodec<Vmsa64, Stage1, G, C> for Stage1Profile<P, A>
 where
@@ -123,15 +119,15 @@ where
     }
 }
 
-impl<X, G, C> AttributeCodec<Vmsa64, Stage2, G, C> for Stage2Profile<Stage2Permissions, X>
+impl<P, X, G, C> AttributeCodec<Vmsa64, Stage2, G, C> for Stage2Profile<P, X>
 where
-    X: Stage2PasContext,
+    P: Stage2PermissionCodec,
+    X: Stage2PasCodec,
     G: TranslationGranule,
     C: LiveAttributeConfiguration,
 {
-    type LeafAttrs =
-        Stage2LeafAttrs<Stage2Permissions, X, MemoryAttributes, Vmsa64Stage2LeafControls>;
-    type TableAttrs = Stage2TableAttrs<Stage2Permissions, X, Vmsa64Stage2TableControls>;
+    type LeafAttrs = Stage2LeafAttrs<P, X, MemoryAttributes, Vmsa64Stage2LeafControls>;
+    type TableAttrs = Stage2TableAttrs<P, X, Vmsa64Stage2TableControls>;
 
     fn encode_leaf_attrs(
         resolver: &AttributeResolver<C>,
@@ -139,18 +135,27 @@ where
         _level: Level,
     ) -> Result<Vmsa64Stage2LeafFields, AttrError> {
         let memory = resolver.resolve_stage2_memory(attrs.memory)?;
+        let permissions = P::encode_leaf_permissions(attrs.permissions)?;
+        let output_address_space =
+            X::encode_leaf_output_address_space(resolver, attrs.output_address_space)?;
+        if X::USES_DESCRIPTOR_NS && attrs.controls.software.bit0 {
+            return Err(AttrError::ConflictingAttributes {
+                first: AttrKind::Security,
+                second: AttrKind::Software,
+            });
+        }
+        let software = attrs.controls.software.bits()
+            | ((output_address_space as u128) & u128::from(X::USES_DESCRIPTOR_NS));
         let lower = memory.bits()
-            | (encode_stage2_data(attrs.permissions.data)? << 4)
+            | (permissions.s2ap << 4)
             | (attrs.controls.shareability.bits() << 6)
             | ((attrs.controls.access_flag as u128) << 8);
-        let upper = attrs.controls.contiguous as u128
-            | ((!attrs.permissions.privileged_execute as u128) << 1)
-            | ((!attrs.permissions.unprivileged_execute as u128) << 2);
+        let upper = attrs.controls.contiguous as u128 | (permissions.xn << 1);
         Ok(Vmsa64Stage2LeafFields {
             lower: RawFieldBlock::from_masked(lower),
             upper: RawFieldBlock::from_masked(upper),
             dirty_bit_modifier: attrs.controls.dirty_management.dbm_bit(),
-            software: RawFieldBlock::from_masked(attrs.controls.software.bits()),
+            software: RawFieldBlock::from_masked(software),
         })
     }
 
@@ -161,19 +166,21 @@ where
     ) -> Result<Self::LeafAttrs, AttrError> {
         let lower = fields.lower.bits();
         let upper = fields.upper.bits();
+        let software = fields.software.bits();
         Ok(Stage2LeafAttrs::new(
             resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(lower)),
-            Stage2LeafPermissions {
-                data: decode_stage2_data(lower >> 4)?,
-                privileged_execute: upper & (1 << 1) == 0,
-                unprivileged_execute: upper & (1 << 2) == 0,
-            },
+            P::decode_leaf_permissions(lower >> 4, upper >> 1)?,
+            X::decode_leaf_output_address_space(resolver, software & 1 != 0),
             Vmsa64Stage2LeafControls {
                 shareability: Shareability::from_bits(lower >> 6)?,
                 access_flag: lower & (1 << 8) != 0,
                 dirty_management: DirtyBitManagement::from_dbm_bit(fields.dirty_bit_modifier),
                 contiguous: upper & 1 != 0,
-                software: SoftwareDefinedBits::from_bits(fields.software.bits()),
+                software: SoftwareDefinedBits::from_bits(if X::USES_DESCRIPTOR_NS {
+                    software & !1
+                } else {
+                    software
+                }),
             },
         ))
     }
@@ -183,7 +190,7 @@ where
         attrs: Self::TableAttrs,
         _level: Level,
     ) -> Result<Vmsa64Stage2TableFields, AttrError> {
-        require_unrestricted_stage2_table(attrs.permissions)?;
+        P::require_unrestricted_table(attrs.permissions)?;
         Ok(Vmsa64Stage2TableFields {
             software: RawFieldBlock::from_masked(attrs.controls.software.bits()),
         })
@@ -195,7 +202,7 @@ where
         _level: Level,
     ) -> Result<Self::TableAttrs, AttrError> {
         Ok(Stage2TableAttrs::new(
-            unrestricted_stage2_table_permissions(),
+            P::unrestricted_table_permissions(),
             Vmsa64Stage2TableControls {
                 software: SoftwareDefinedBits::from_bits(fields.software.bits()),
             },

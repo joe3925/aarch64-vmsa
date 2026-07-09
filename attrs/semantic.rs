@@ -193,6 +193,7 @@ where
 {
     pub memory: M,
     pub permissions: P::LeafPermissions,
+    pub output_address_space: X::OutputAddressSpaceAttr,
     pub controls: C,
     context: PhantomData<X>,
 }
@@ -202,10 +203,16 @@ where
     P: PermissionModel,
     X: Stage2PasContext,
 {
-    pub const fn new(memory: M, permissions: P::LeafPermissions, controls: C) -> Self {
+    pub const fn new(
+        memory: M,
+        permissions: P::LeafPermissions,
+        output_address_space: X::OutputAddressSpaceAttr,
+        controls: C,
+    ) -> Self {
         Self {
             memory,
             permissions,
+            output_address_space,
             controls,
             context: PhantomData,
         }

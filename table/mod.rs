@@ -1,6 +1,7 @@
 mod access;
 mod addr;
 mod error;
+mod frame;
 pub mod geometry;
 mod offset;
 mod recursive;
@@ -10,6 +11,7 @@ mod table_ref;
 pub use access::*;
 pub use addr::*;
 pub use error::*;
+pub use frame::*;
 pub use geometry::*;
 pub use offset::*;
 pub use recursive::*;

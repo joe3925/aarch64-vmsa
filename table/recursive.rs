@@ -100,47 +100,47 @@ where
         &self,
         location: TableAccessLocation<F, G>,
     ) -> Result<NonNull<F::Raw>, AccessError> {
-        if location.root_level != self.root_level {
+        if location.root_level() != self.root_level {
             return Err(AccessError::RecursiveLevelMismatch);
         }
 
-        if location.level.is_before(self.root_level) || location.level.is_after(F::FINAL_LEVEL) {
+        if location.level().is_before(self.root_level) || location.level().is_after(F::FINAL_LEVEL)
+        {
             return Err(AccessError::RecursiveLevelMismatch);
         }
 
-        let expected = location
-            .level
-            .distance_from(self.root_level)
-            .ok_or(AccessError::RecursiveLevelMismatch)?;
-
-        if location.path.len() != expected {
-            return Err(AccessError::TablePathLengthMismatch {
-                expected,
-                actual: location.path.len(),
+        let path = location.path();
+        let actual = path.terminal_level(self.root_level)?;
+        if actual != location.level() {
+            return Err(AccessError::TablePathTerminalLevelMismatch {
+                expected: location.level(),
+                actual,
             });
         }
 
-        let entries = TableGeometry::<F, G>::entries();
-        let mut depth = location.path.len();
+        let mut depth = path.len();
         let mut slot_level = F::FINAL_LEVEL;
         let mut va = self.recursive_base.0;
 
         while depth > 0 {
             depth -= 1;
-            let index = location
-                .path
-                .index(depth)
-                .ok_or(AccessError::TablePathLengthMismatch {
-                    expected,
-                    actual: location.path.len(),
-                })?;
+            let entry =
+                path.entry(self.root_level, depth)
+                    .ok_or(AccessError::TablePathLengthMismatch {
+                        expected: path.len(),
+                        actual: path.len(),
+                    })?;
+            let stride_count = entry.parent().stride_count().raw();
+            let entries = entry.parent().entries();
+            let index = entry.index();
 
             if index >= entries {
                 return Err(AccessError::TablePathIndexOutOfRange { index, entries });
             }
 
             let shift = TableGeometry::<F, G>::level_shift(slot_level);
-            let field_mask = (TableGeometry::<F, G>::index_mask() as u128) << shift;
+            let field_mask =
+                (TableGeometry::<F, G>::index_mask_for_stride_count(stride_count) as u128) << shift;
 
             if field_mask > u64::MAX as u128 {
                 return Err(AccessError::AddressOverflow);
@@ -148,7 +148,7 @@ where
 
             let field_mask = field_mask as u64;
             va = (va & !field_mask) | ((index as u64) << shift);
-            slot_level = slot_level.previous();
+            slot_level = Level::new(slot_level.as_i8() - stride_count as i8);
         }
 
         NonNull::new(va as *mut F::Raw).ok_or(AccessError::NullMapping)
@@ -166,10 +166,10 @@ where
         &'a self,
         location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTable<'a, F, G>, Self::Error> {
-        let level = location.level;
+        let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        Ok(unsafe { TranslationTable::from_ptr(ptr, level) })
+        Ok(unsafe { TranslationTable::from_ptr(ptr, shape) })
     }
 }
 
@@ -182,9 +182,9 @@ where
         &'a mut self,
         location: TableAccessLocation<F, G>,
     ) -> Result<TranslationTableMut<'a, F, G>, Self::Error> {
-        let level = location.level;
+        let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        Ok(unsafe { TranslationTableMut::from_ptr(ptr, level) })
+        Ok(unsafe { TranslationTableMut::from_ptr(ptr, shape) })
     }
 }
