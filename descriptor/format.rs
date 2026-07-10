@@ -95,7 +95,7 @@ impl DescriptorFormat for Vmsa64Lpa2 {
     }
 
     fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool {
-        crate::descriptor::layout::vmsa64_supports_leaf_level(G::KIND, level)
+        crate::descriptor::layout::vmsa64_lpa2_supports_leaf_level(G::KIND, level)
     }
 
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {

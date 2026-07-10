@@ -1,4 +1,4 @@
-use crate::address::{Level, TranslationGranule};
+use crate::address::{GranuleKind, Level, TranslationGranule};
 use crate::attrs::{
     AttrError, AttrKind, AttributeCodec, AttributeResolver, DirtyBitManagement,
     LiveAttributeConfiguration, MairIndex, MemoryAttributes, Shareability, SoftwareDefinedBits,
@@ -31,7 +31,7 @@ where
         attrs: Self::LeafAttrs,
         _level: Level,
     ) -> Result<Vmsa64Lpa2Stage1LeafFields, AttrError> {
-        require_effective_shareability(resolver, attrs.controls.shareability)?;
+        require_lpa2_shareability::<G, C>(resolver, attrs.controls.shareability)?;
         if A::USES_NSE && !attrs.controls.global {
             return Err(AttrError::ConflictingAttributes {
                 first: AttrKind::Security,
@@ -46,11 +46,14 @@ where
             !attrs.controls.global
         };
         let memory = resolver.resolve_stage1_memory::<3>(attrs.memory)?;
-        let lower = memory.bits()
-            | ((non_secure as u128) << 3)
-            | (permissions.ap << 4)
-            | ((attrs.controls.access_flag as u128) << 6)
-            | ((alias_bit as u128) << 7);
+        let lower = encode_lpa2_stage1_lower::<G>(
+            memory.bits(),
+            non_secure,
+            permissions.ap,
+            attrs.controls.shareability,
+            attrs.controls.access_flag,
+            alias_bit,
+        );
         let upper = attrs.controls.contiguous as u128
             | ((permissions.pxn as u128) << 1)
             | ((permissions.uxn as u128) << 2);
@@ -70,17 +73,15 @@ where
         _level: Level,
     ) -> Result<Self::LeafAttrs, AttrError> {
         let lower = fields.lower.bits();
+        let alias_bit = decode_lpa2_stage1_alias_bit::<G>(lower);
         Ok(Stage1LeafAttrs {
             memory: resolver.decode_stage1_memory(MairIndex::<3>::from_bits(lower)),
-            permissions: P::decode_leaf_permissions(
-                RawFieldBlock::from_masked(lower),
-                fields.upper,
-            ),
-            pas: A::decode_leaf_pas(lower & (1 << 3) != 0, lower & (1 << 7) != 0),
+            permissions: P::decode_leaf_permissions(fields.lower, fields.upper),
+            pas: A::decode_leaf_pas(lower & (1 << 3) != 0, alias_bit),
             controls: Vmsa64Stage1LeafControls {
-                shareability: resolver.effective_shareability(),
-                access_flag: lower & (1 << 6) != 0,
-                global: A::USES_NSE || lower & (1 << 7) == 0,
+                shareability: decode_lpa2_stage1_shareability::<G, C>(resolver, lower)?,
+                access_flag: decode_lpa2_stage1_access_flag::<G>(lower),
+                global: A::USES_NSE || !alias_bit,
                 dirty_management: DirtyBitManagement::from_dbm_bit(fields.dirty_bit_modifier),
                 contiguous: fields.upper.bits() & 1 != 0,
                 guarded: fields.guarded,
@@ -136,7 +137,7 @@ where
         attrs: Self::LeafAttrs,
         _level: Level,
     ) -> Result<Vmsa64Lpa2Stage2LeafFields, AttrError> {
-        require_effective_shareability(resolver, attrs.controls.shareability)?;
+        require_lpa2_shareability::<G, C>(resolver, attrs.controls.shareability)?;
         let memory = resolver.resolve_stage2_memory(attrs.memory)?;
         let permissions = P::encode_leaf_permissions(attrs.permissions)?;
         let output_address_space =
@@ -149,8 +150,12 @@ where
         }
         let software = attrs.controls.software.bits()
             | ((output_address_space as u128) & u128::from(X::USES_DESCRIPTOR_NS));
-        let lower =
-            memory.bits() | (permissions.s2ap << 4) | ((attrs.controls.access_flag as u128) << 6);
+        let lower = encode_lpa2_stage2_lower::<G>(
+            memory.bits(),
+            permissions.s2ap,
+            attrs.controls.shareability,
+            attrs.controls.access_flag,
+        );
         let upper = attrs.controls.contiguous as u128 | (permissions.xn << 1);
         Ok(Vmsa64Lpa2Stage2LeafFields {
             lower: RawFieldBlock::from_masked(lower),
@@ -169,12 +174,12 @@ where
         let upper = fields.upper.bits();
         let software = fields.software.bits();
         Ok(Stage2LeafAttrs::new(
-            resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(lower)),
+            resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(lower))?,
             P::decode_leaf_permissions(lower >> 4, upper >> 1)?,
             X::decode_leaf_output_address_space(resolver, software & 1 != 0),
             Vmsa64Stage2LeafControls {
-                shareability: resolver.effective_shareability(),
-                access_flag: lower & (1 << 6) != 0,
+                shareability: decode_lpa2_stage2_shareability::<G, C>(resolver, lower)?,
+                access_flag: decode_lpa2_stage2_access_flag::<G>(lower),
                 dirty_management: DirtyBitManagement::from_dbm_bit(fields.dirty_bit_modifier),
                 contiguous: upper & 1 != 0,
                 software: SoftwareDefinedBits::from_bits(if X::USES_DESCRIPTOR_NS {
@@ -226,5 +231,113 @@ where
             requested,
             effective,
         })
+    }
+}
+
+fn require_lpa2_shareability<G, C>(
+    resolver: &AttributeResolver<C>,
+    shareability: Shareability,
+) -> Result<(), AttrError>
+where
+    G: TranslationGranule,
+    C: LiveAttributeConfiguration,
+{
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => {
+            require_effective_shareability(resolver, shareability)
+        }
+        GranuleKind::Size64KiB => Ok(()),
+    }
+}
+
+fn encode_lpa2_stage1_lower<G: TranslationGranule>(
+    memory: u128,
+    non_secure: bool,
+    ap: u128,
+    shareability: Shareability,
+    access_flag: bool,
+    alias_bit: bool,
+) -> u128 {
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => {
+            memory
+                | ((non_secure as u128) << 3)
+                | (ap << 4)
+                | ((access_flag as u128) << 6)
+                | ((alias_bit as u128) << 7)
+        }
+        GranuleKind::Size64KiB => {
+            memory
+                | ((non_secure as u128) << 3)
+                | (ap << 4)
+                | (shareability.bits() << 6)
+                | ((access_flag as u128) << 8)
+                | ((alias_bit as u128) << 9)
+        }
+    }
+}
+
+fn decode_lpa2_stage1_shareability<G, C>(
+    resolver: &AttributeResolver<C>,
+    lower: u128,
+) -> Result<Shareability, AttrError>
+where
+    G: TranslationGranule,
+    C: LiveAttributeConfiguration,
+{
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => Ok(resolver.effective_shareability()),
+        GranuleKind::Size64KiB => Shareability::from_bits(lower >> 6),
+    }
+}
+
+fn decode_lpa2_stage1_access_flag<G: TranslationGranule>(lower: u128) -> bool {
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => lower & (1 << 6) != 0,
+        GranuleKind::Size64KiB => lower & (1 << 8) != 0,
+    }
+}
+
+fn decode_lpa2_stage1_alias_bit<G: TranslationGranule>(lower: u128) -> bool {
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => lower & (1 << 7) != 0,
+        GranuleKind::Size64KiB => lower & (1 << 9) != 0,
+    }
+}
+
+fn encode_lpa2_stage2_lower<G: TranslationGranule>(
+    memory: u128,
+    s2ap: u128,
+    shareability: Shareability,
+    access_flag: bool,
+) -> u128 {
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => {
+            memory | (s2ap << 4) | ((access_flag as u128) << 6)
+        }
+        GranuleKind::Size64KiB => {
+            memory | (s2ap << 4) | (shareability.bits() << 6) | ((access_flag as u128) << 8)
+        }
+    }
+}
+
+fn decode_lpa2_stage2_shareability<G, C>(
+    resolver: &AttributeResolver<C>,
+    lower: u128,
+) -> Result<Shareability, AttrError>
+where
+    G: TranslationGranule,
+    C: LiveAttributeConfiguration,
+{
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => Ok(resolver.effective_shareability()),
+        GranuleKind::Size64KiB => Shareability::from_bits(lower >> 6),
+    }
+}
+
+fn decode_lpa2_stage2_access_flag<G: TranslationGranule>(lower: u128) -> bool {
+    match G::KIND {
+        GranuleKind::Size4KiB | GranuleKind::Size16KiB => lower & (1 << 6) != 0,
+        GranuleKind::Size64KiB => lower & (1 << 8) != 0,
     }
 }

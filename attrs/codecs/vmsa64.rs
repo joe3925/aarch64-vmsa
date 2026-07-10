@@ -168,7 +168,7 @@ where
         let upper = fields.upper.bits();
         let software = fields.software.bits();
         Ok(Stage2LeafAttrs::new(
-            resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(lower)),
+            resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(lower))?,
             P::decode_leaf_permissions(lower >> 4, upper >> 1)?,
             X::decode_leaf_output_address_space(resolver, software & 1 != 0),
             Vmsa64Stage2LeafControls {

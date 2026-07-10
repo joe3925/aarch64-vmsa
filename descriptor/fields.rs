@@ -30,7 +30,7 @@ pub struct Vmsa64Stage2TableFields {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Lpa2Stage1LeafFields {
-    pub lower: RawFieldBlock<8>,
+    pub lower: RawFieldBlock<10>,
     pub upper: RawFieldBlock<3>,
     pub dirty_bit_modifier: bool,
     pub guarded: bool,
@@ -39,7 +39,7 @@ pub struct Vmsa64Lpa2Stage1LeafFields {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Lpa2Stage2LeafFields {
-    pub lower: RawFieldBlock<7>,
+    pub lower: RawFieldBlock<9>,
     pub upper: RawFieldBlock<3>,
     pub dirty_bit_modifier: bool,
     pub software: RawFieldBlock<4>,

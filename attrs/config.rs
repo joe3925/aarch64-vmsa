@@ -12,6 +12,10 @@ pub trait LiveAttributeConfiguration {
     fn output_address_space(&self) -> OutputAddressSpace;
     fn d128_leaf_alias_kind(&self) -> D128LeafAliasKind;
     fn effective_shareability(&self) -> Shareability;
+
+    fn stage2_mem_attr_mode(&self) -> Stage2MemAttrMode {
+        Stage2MemAttrMode::FwbDisabled
+    }
 }
 
 impl<T> LiveAttributeConfiguration for &T
@@ -45,6 +49,16 @@ where
     fn effective_shareability(&self) -> Shareability {
         (**self).effective_shareability()
     }
+
+    fn stage2_mem_attr_mode(&self) -> Stage2MemAttrMode {
+        (**self).stage2_mem_attr_mode()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stage2MemAttrMode {
+    FwbDisabled,
+    FwbEnabled { mte_perm: bool },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -184,19 +198,12 @@ where
         &self,
         attrs: MemoryAttributes,
     ) -> Result<Stage2MemoryEncoding, AttrError> {
-        let bits = match attrs {
-            MemoryAttributes::Device(device) => match device {
-                DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck => 0b0000,
-                DeviceMemoryType::NonGatheringNonReorderingEarlyAck => 0b0001,
-                DeviceMemoryType::NonGatheringReorderingEarlyAck => 0b0010,
-                DeviceMemoryType::GatheringReorderingEarlyAck => 0b0011,
-            },
-            MemoryAttributes::Normal { inner, outer } => {
-                (encode_stage2_cacheability(outer)? << 2) | encode_stage2_cacheability(inner)?
+        match self.config.stage2_mem_attr_mode() {
+            Stage2MemAttrMode::FwbDisabled => encode_stage2_memory_fwb_disabled(attrs),
+            Stage2MemAttrMode::FwbEnabled { mte_perm } => {
+                encode_stage2_memory_fwb_enabled(attrs, mte_perm)
             }
-        };
-
-        Ok(Stage2MemoryEncoding::from_bits(bits as u128))
+        }
     }
 
     pub(crate) fn resolve_d128_permissions(
@@ -250,13 +257,19 @@ where
         ))
     }
 
-    pub(crate) fn decode_stage2_memory(&self, encoding: Stage2MemoryEncoding) -> MemoryAttributes {
+    pub(crate) fn decode_stage2_memory(
+        &self,
+        encoding: Stage2MemoryEncoding,
+    ) -> Result<MemoryAttributes, AttrError> {
         debug_assert!(encoding.bits() <= 0xf);
-        let decoded = decode_stage2_memory_encoding(encoding.0);
-        debug_assert!(decoded.is_some());
-        decoded.unwrap_or(MemoryAttributes::Device(
-            DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck,
-        ))
+        match self.config.stage2_mem_attr_mode() {
+            Stage2MemAttrMode::FwbDisabled => decode_stage2_memory_fwb_disabled(encoding.0)
+                .ok_or(AttrError::UnencodableMemoryAttribute),
+            Stage2MemAttrMode::FwbEnabled { mte_perm } => {
+                decode_stage2_memory_fwb_enabled(encoding.0, mte_perm)
+                    .ok_or(AttrError::UnencodableMemoryAttribute)
+            }
+        }
     }
 
     pub(crate) fn decode_d128_permissions(
@@ -437,6 +450,49 @@ const fn decode_allocation_hints(bits: u8) -> AllocationHints {
     }
 }
 
+fn encode_stage2_memory_fwb_disabled(
+    attrs: MemoryAttributes,
+) -> Result<Stage2MemoryEncoding, AttrError> {
+    let bits = match attrs {
+        MemoryAttributes::Device(device) => encode_stage2_device(device),
+        MemoryAttributes::Normal { inner, outer } => {
+            (encode_stage2_cacheability(outer)? << 2) | encode_stage2_cacheability(inner)?
+        }
+    };
+
+    Ok(Stage2MemoryEncoding::from_bits(bits as u128))
+}
+
+fn encode_stage2_memory_fwb_enabled(
+    attrs: MemoryAttributes,
+    _mte_perm: bool,
+) -> Result<Stage2MemoryEncoding, AttrError> {
+    let bits = match attrs {
+        MemoryAttributes::Device(device) => encode_stage2_device(device),
+        MemoryAttributes::Normal { inner, outer } => {
+            match (
+                encode_stage2_cacheability(outer)?,
+                encode_stage2_cacheability(inner)?,
+            ) {
+                (0b01, 0b01) => 0b0101,
+                (0b11, 0b11) => 0b0111,
+                _ => return Err(AttrError::UnencodableMemoryAttribute),
+            }
+        }
+    };
+
+    Ok(Stage2MemoryEncoding::from_bits(bits as u128))
+}
+
+const fn encode_stage2_device(device: DeviceMemoryType) -> u8 {
+    match device {
+        DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck => 0b0000,
+        DeviceMemoryType::NonGatheringNonReorderingEarlyAck => 0b0001,
+        DeviceMemoryType::NonGatheringReorderingEarlyAck => 0b0010,
+        DeviceMemoryType::GatheringReorderingEarlyAck => 0b0011,
+    }
+}
+
 fn encode_stage2_cacheability(cacheability: Cacheability) -> Result<u8, AttrError> {
     match cacheability {
         Cacheability::NonCacheable => Ok(0b01),
@@ -452,7 +508,7 @@ fn encode_stage2_cacheability(cacheability: Cacheability) -> Result<u8, AttrErro
     }
 }
 
-fn decode_stage2_memory_encoding(bits: u8) -> Option<MemoryAttributes> {
+fn decode_stage2_memory_fwb_disabled(bits: u8) -> Option<MemoryAttributes> {
     match bits & 0xf {
         0b0000 => Some(MemoryAttributes::Device(
             DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck,
@@ -474,23 +530,66 @@ fn decode_stage2_memory_encoding(bits: u8) -> Option<MemoryAttributes> {
     }
 }
 
+fn decode_stage2_memory_fwb_enabled(bits: u8, mte_perm: bool) -> Option<MemoryAttributes> {
+    let bits = bits & 0xf;
+
+    if !mte_perm && bits & 0b1000 != 0 {
+        return None;
+    }
+
+    match bits >> 2 {
+        0b00 => decode_stage2_device(bits & 0b11).map(MemoryAttributes::Device),
+        0b01 => match bits & 0b11 {
+            0b01 => Some(MemoryAttributes::Normal {
+                inner: Cacheability::NonCacheable,
+                outer: Cacheability::NonCacheable,
+            }),
+            0b11 => Some(MemoryAttributes::Normal {
+                inner: stage2_write_back_cacheability(),
+                outer: stage2_write_back_cacheability(),
+            }),
+            _ => None,
+        },
+        0b10 | 0b11 => None,
+        _ => None,
+    }
+}
+
+const fn decode_stage2_device(bits: u8) -> Option<DeviceMemoryType> {
+    match bits & 0b11 {
+        0b00 => Some(DeviceMemoryType::NonGatheringNonReorderingNoEarlyAck),
+        0b01 => Some(DeviceMemoryType::NonGatheringNonReorderingEarlyAck),
+        0b10 => Some(DeviceMemoryType::NonGatheringReorderingEarlyAck),
+        0b11 => Some(DeviceMemoryType::GatheringReorderingEarlyAck),
+        _ => None,
+    }
+}
+
 fn decode_stage2_cacheability(bits: u8) -> Cacheability {
     match bits & 0b11 {
         0b01 => Cacheability::NonCacheable,
-        0b10 => Cacheability::Cacheable {
-            policy: CachePolicy::WriteThrough,
-            transience: MemoryTransience::NonTransient,
-            allocation: AllocationHints::ReadWriteAllocate,
-        },
-        0b11 => Cacheability::Cacheable {
-            policy: CachePolicy::WriteBack,
-            transience: MemoryTransience::NonTransient,
-            allocation: AllocationHints::ReadWriteAllocate,
-        },
+        0b10 => stage2_write_through_cacheability(),
+        0b11 => stage2_write_back_cacheability(),
         _ => {
             debug_assert!(false, "invalid stage-2 normal-memory cacheability");
             Cacheability::NonCacheable
         }
+    }
+}
+
+const fn stage2_write_through_cacheability() -> Cacheability {
+    Cacheability::Cacheable {
+        policy: CachePolicy::WriteThrough,
+        transience: MemoryTransience::NonTransient,
+        allocation: AllocationHints::ReadWriteAllocate,
+    }
+}
+
+const fn stage2_write_back_cacheability() -> Cacheability {
+    Cacheability::Cacheable {
+        policy: CachePolicy::WriteBack,
+        transience: MemoryTransience::NonTransient,
+        allocation: AllocationHints::ReadWriteAllocate,
     }
 }
 

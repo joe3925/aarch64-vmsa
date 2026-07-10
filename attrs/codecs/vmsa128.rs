@@ -170,8 +170,9 @@ where
         _level: Level,
     ) -> Result<Self::LeafAttrs, AttrError> {
         Ok(Vmsa128Stage2LeafAttrs::new(
-            resolver
-                .decode_stage2_memory(Stage2MemoryEncoding::from_bits(fields.attr_index().bits())),
+            resolver.decode_stage2_memory(Stage2MemoryEncoding::from_bits(
+                fields.attr_index().bits(),
+            ))?,
             resolver.decode_d128_permissions(ResolvedD128Permissions {
                 indirection: PermissionIndirectionIndex::from_bits(fields.pii().bits()),
                 overlay: PermissionOverlayIndex::from_bits(fields.poi().bits()),
