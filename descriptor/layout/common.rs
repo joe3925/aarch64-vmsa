@@ -1,19 +1,39 @@
-use crate::address::PhysAddr;
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Field<const LSB: u32, const WIDTH: u32>;
 
-pub fn encode_direct_address(address: PhysAddr, address_field_mask: u128) -> u128 {
-    address.0 as u128 & address_field_mask
-}
+impl<const LSB: u32, const WIDTH: u32> Field<LSB, WIDTH> {
+    const VALID: () = {
+        assert!(WIDTH != 0, "architectural fields must be non-empty");
+        assert!(LSB <= u128::BITS, "field LSB exceeds descriptor width");
+        assert!(WIDTH <= u128::BITS, "field width exceeds descriptor width");
+        assert!(LSB + WIDTH <= u128::BITS, "field exceeds descriptor width");
+    };
 
-pub fn decode_direct_output_address(raw: u128, address_field_mask: u128) -> PhysAddr {
-    PhysAddr((raw & address_field_mask) as u64)
-}
+    pub const fn value_mask() -> u128 {
+        let () = Self::VALID;
+        if WIDTH == u128::BITS {
+            u128::MAX
+        } else {
+            (1u128 << WIDTH) - 1
+        }
+    }
 
-pub const fn lower_bits_mask(bits: u8) -> u128 {
-    if bits == 0 {
-        0
-    } else if bits >= 128 {
-        u128::MAX
-    } else {
-        (1u128 << bits) - 1
+    pub const fn mask() -> u128 {
+        let () = Self::VALID;
+        Self::value_mask() << LSB
+    }
+
+    pub const fn extract(raw: u128) -> u128 {
+        let () = Self::VALID;
+        (raw >> LSB) & Self::value_mask()
+    }
+
+    pub const fn insert(raw: u128, value: u128) -> u128 {
+        let () = Self::VALID;
+        debug_assert!(
+            value & !Self::value_mask() == 0,
+            "field value is out of range"
+        );
+        (raw & !Self::mask()) | ((value & Self::value_mask()) << LSB)
     }
 }
