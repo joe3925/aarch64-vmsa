@@ -25,15 +25,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum TranslationStageKind {
-    Stage1,
-    Stage2,
-}
-
-pub trait TranslationStage: Copy + 'static {
-    const KIND: TranslationStageKind;
-}
+pub trait TranslationStage: Copy + 'static {}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stage1;
@@ -41,24 +33,12 @@ pub struct Stage1;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stage2;
 
-impl TranslationStage for Stage1 {
-    const KIND: TranslationStageKind = TranslationStageKind::Stage1;
-}
+impl TranslationStage for Stage1 {}
 
-impl TranslationStage for Stage2 {
-    const KIND: TranslationStageKind = TranslationStageKind::Stage2;
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum WalkProfileKind {
-    Stage1,
-    Stage2,
-}
+impl TranslationStage for Stage2 {}
 
 pub trait TranslationWalkProfile: Copy + 'static {
     type Stage: TranslationStage;
-
-    const KIND: WalkProfileKind;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,14 +49,10 @@ pub struct Stage2Walk;
 
 impl TranslationWalkProfile for Stage1Walk {
     type Stage = Stage1;
-
-    const KIND: WalkProfileKind = WalkProfileKind::Stage1;
 }
 
 impl TranslationWalkProfile for Stage2Walk {
     type Stage = Stage2;
-
-    const KIND: WalkProfileKind = WalkProfileKind::Stage2;
 }
 
 #[repr(transparent)]
