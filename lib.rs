@@ -11,7 +11,7 @@ pub mod translation;
 
 pub use address::{addr, granule};
 pub use arch::features;
-pub use descriptor::{fields, format, layout};
+pub use descriptor::format;
 pub use translation::walk as walkers;
 
 pub mod low_level {
