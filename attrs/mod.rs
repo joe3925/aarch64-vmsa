@@ -3,19 +3,13 @@ mod config;
 mod pas;
 mod permissions;
 pub(crate) mod raw;
-mod profile;
 mod semantic;
-mod vmsa128;
-mod vmsa64;
 
 pub use config::*;
 pub use pas::*;
 pub use permissions::*;
 pub(crate) use raw::*;
-pub use profile::*;
 pub use semantic::*;
-pub use vmsa64::*;
-pub use vmsa128::*;
 
 use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorLayout;

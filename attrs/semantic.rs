@@ -1,6 +1,4 @@
-use core::marker::PhantomData;
-
-use super::{AttrError, PermissionModel, Stage1PasModel, Stage2PasContext};
+use super::{Stage1NotDirty, Stage2Dirty};
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -33,6 +31,12 @@ pub enum AllocationHints {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum MemoryTransience {
+    Transient,
+    NonTransient,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Cacheability {
     NonCacheable,
     Cacheable {
@@ -51,64 +55,40 @@ pub enum MemoryAttributes {
     },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum FwbStage2Memory {
+    Device(DeviceMemoryType),
+    ForceNormalNonCacheable,
+    ForceNormalWriteBack,
+    UseStage1,
+    ForceNormalWriteBackNoTagAccess,
+    UseStage1NoTagAccess,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum Stage2MemoryAttributes {
+    Combined(MemoryAttributes),
+    Fwb(FwbStage2Memory),
+}
+
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct SoftwareDefinedBits {
-    pub bit0: bool,
-    pub bit1: bool,
-    pub bit2: bool,
-    pub bit3: bool,
-}
+pub struct SoftwareMetadata(u16);
 
-impl SoftwareDefinedBits {
-    pub(crate) const fn bits(self) -> u128 {
-        self.bit0 as u128
-            | ((self.bit1 as u128) << 1)
-            | ((self.bit2 as u128) << 2)
-            | ((self.bit3 as u128) << 3)
+impl SoftwareMetadata {
+    pub const fn new(value: u16) -> Self {
+        Self(value)
     }
 
-    pub(crate) const fn from_bits(bits: u128) -> Self {
-        Self {
-            bit0: bits & 1 != 0,
-            bit1: bits & 2 != 0,
-            bit2: bits & 4 != 0,
-            bit3: bits & 8 != 0,
-        }
+    pub const fn value(self) -> u16 {
+        self.0
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FeatureDependentLeafAlias {
-    NonGlobal(bool),
-    ForceNoExecute(bool),
-    NonSecureExtension(bool),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum D128LeafAliasKind {
+pub enum D128Stage1AliasKind {
     NonGlobal,
-    ForceNoExecute,
     NonSecureExtension,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum MemoryTransience {
-    Transient,
-    NonTransient,
-}
-
-impl MemoryTransience {
-    pub(crate) const fn not_transient_bit(self) -> bool {
-        matches!(self, Self::NonTransient)
-    }
-
-    pub(crate) const fn from_not_transient_bit(bit: bool) -> Self {
-        if bit {
-            Self::NonTransient
-        } else {
-            Self::Transient
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -117,13 +97,35 @@ pub enum DirtyState {
     Clean,
 }
 
-impl DirtyState {
-    pub(crate) const fn not_dirty_bit(self) -> bool {
-        matches!(self, Self::Clean)
+impl From<DirtyState> for Stage1NotDirty {
+    fn from(value: DirtyState) -> Self {
+        Stage1NotDirty::new(matches!(value, DirtyState::Clean))
     }
+}
 
-    pub(crate) const fn from_not_dirty_bit(bit: bool) -> Self {
-        if bit { Self::Clean } else { Self::Dirty }
+impl From<Stage1NotDirty> for DirtyState {
+    fn from(value: Stage1NotDirty) -> Self {
+        if value.bit() {
+            Self::Clean
+        } else {
+            Self::Dirty
+        }
+    }
+}
+
+impl From<DirtyState> for Stage2Dirty {
+    fn from(value: DirtyState) -> Self {
+        Stage2Dirty::new(matches!(value, DirtyState::Dirty))
+    }
+}
+
+impl From<Stage2Dirty> for DirtyState {
+    fn from(value: Stage2Dirty) -> Self {
+        if value.bit() {
+            Self::Dirty
+        } else {
+            Self::Clean
+        }
     }
 }
 
@@ -133,113 +135,125 @@ pub enum DirtyBitManagement {
     HardwareManaged,
 }
 
-impl DirtyBitManagement {
-    pub(crate) const fn dbm_bit(self) -> bool {
-        matches!(self, Self::HardwareManaged)
-    }
-
-    pub(crate) const fn from_dbm_bit(bit: bool) -> Self {
-        if bit {
-            Self::HardwareManaged
-        } else {
-            Self::SoftwareManaged
-        }
-    }
-}
-
-impl Shareability {
-    pub(crate) const fn bits(self) -> u128 {
-        self as u128
-    }
-
-    pub(crate) fn from_bits(bits: u128) -> Result<Self, AttrError> {
-        match bits & 0b11 {
-            0b00 => Ok(Self::NonShareable),
-            0b10 => Ok(Self::OuterShareable),
-            0b11 => Ok(Self::InnerShareable),
-            _ => Err(AttrError::InvalidShareability),
-        }
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticStage1LeafAttrs<P, Pas, C> {
+    pub memory: MemoryAttributes,
+    pub permissions: P,
+    pub pas: Pas,
+    pub controls: C,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage1LeafAttrs<P, A, M, C>
-where
-    P: PermissionModel,
-    A: Stage1PasModel,
-{
+pub(crate) struct ResolvedStage1LeafAttrs<M, P, Pas, C> {
     pub memory: M,
-    pub permissions: P::LeafPermissions,
-    pub pas: A::LeafAttr,
+    pub permissions: P,
+    pub pas: Pas,
     pub controls: C,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage1TableAttrs<P, A, C>
-where
-    P: PermissionModel,
-    A: Stage1PasModel,
-{
-    pub permissions: P::TablePermissions,
-    pub pas: A::TableAttr,
+pub struct SemanticStage1TableAttrs<P, Pas, C> {
+    pub permission_limits: P,
+    pub pas: Pas,
     pub controls: C,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2LeafAttrs<P, X, M, C>
-where
-    P: PermissionModel,
-    X: Stage2PasContext,
-{
+pub(crate) struct ResolvedStage1TableAttrs<P, Pas, C> {
+    pub permission_limits: P,
+    pub pas: Pas,
+    pub controls: C,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticStage2LeafAttrs<P, Pas, C> {
+    pub memory: Stage2MemoryAttributes,
+    pub permissions: P,
+    pub output_address_space: Pas,
+    pub controls: C,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedStage2LeafAttrs<M, P, Pas, C> {
     pub memory: M,
-    pub permissions: P::LeafPermissions,
-    pub output_address_space: X::OutputAddressSpaceAttr,
+    pub permissions: P,
+    pub output_address_space: Pas,
     pub controls: C,
-    context: PhantomData<X>,
-}
-
-impl<P, X, M, C> Stage2LeafAttrs<P, X, M, C>
-where
-    P: PermissionModel,
-    X: Stage2PasContext,
-{
-    pub const fn new(
-        memory: M,
-        permissions: P::LeafPermissions,
-        output_address_space: X::OutputAddressSpaceAttr,
-        controls: C,
-    ) -> Self {
-        Self {
-            memory,
-            permissions,
-            output_address_space,
-            controls,
-            context: PhantomData,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2TableAttrs<P, X, C>
-where
-    P: PermissionModel,
-    X: Stage2PasContext,
-{
-    pub permissions: P::TablePermissions,
+pub struct SemanticStage2TableAttrs<C> {
     pub controls: C,
-    context: PhantomData<X>,
 }
 
-impl<P, X, C> Stage2TableAttrs<P, X, C>
-where
-    P: PermissionModel,
-    X: Stage2PasContext,
-{
-    pub const fn new(permissions: P::TablePermissions, controls: C) -> Self {
-        Self {
-            permissions,
-            controls,
-            context: PhantomData,
-        }
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticVmsa64Stage1LeafControls {
+    pub shareability: Shareability,
+    pub access_flag: bool,
+    pub global: bool,
+    pub dirty_management: DirtyBitManagement,
+    pub contiguous: bool,
+    pub guarded: bool,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticVmsa64Stage1TableControls {
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticVmsa64Stage2LeafControls {
+    pub shareability: Shareability,
+    pub access_flag: bool,
+    pub dirty_management: DirtyBitManagement,
+    pub contiguous: bool,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticVmsa64Stage2TableAttrs {
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticVmsa128Stage1LeafControls {
+    pub bbm_nt: bool,
+    pub dirty_state: DirtyState,
+    pub shareability: Shareability,
+    pub access_flag: bool,
+    pub global: bool,
+    pub contiguous: bool,
+    pub guarded: bool,
+    pub protected: bool,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticVmsa128Stage1TableAttrs<Pas = ()> {
+    pub table_nt: bool,
+    pub access_flag: bool,
+    pub disch: bool,
+    pub protected: bool,
+    pub pas: Pas,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticVmsa128Stage2LeafControls {
+    pub bbm_nt: bool,
+    pub dirty_state: DirtyState,
+    pub shareability: Shareability,
+    pub access_flag: bool,
+    pub force_no_execute: bool,
+    pub contiguous: bool,
+    pub assured_only: bool,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SemanticVmsa128Stage2TableAttrs {
+    pub table_nt: bool,
+    pub access_flag: bool,
+    pub software: SoftwareMetadata,
 }
