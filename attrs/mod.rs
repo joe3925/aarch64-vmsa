@@ -1,11 +1,10 @@
 mod codecs;
-mod config;
+mod resolve;
 mod pas;
 mod permissions;
 pub(crate) mod raw;
 mod semantic;
 
-pub use config::*;
 pub use pas::*;
 pub use permissions::*;
 pub(crate) use raw::*;
