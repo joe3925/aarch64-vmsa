@@ -1,182 +1,170 @@
-use core::marker::PhantomData;
+#![allow(non_camel_case_types)]
 
-use crate::address::PhysAddr;
-use crate::address::{GranuleKind, Level, TranslationGranule};
-use crate::descriptor::{DescriptorKind, HasLayout, Vmsa64};
-use crate::descriptor::{
-    Vmsa64Stage1LeafFields, Vmsa64Stage1TableFields, Vmsa64Stage2LeafFields,
-    Vmsa64Stage2TableFields,
+use super::Field;
+
+pub type VMSA64_VALID = Field<0, 1>;
+pub type VMSA64_TABLE_OR_PAGE = Field<1, 1>;
+pub type VMSA64_STAGE1_ATTR_INDEX = Field<2, 3>;
+pub type VMSA64_STAGE1_NS = Field<5, 1>;
+pub type VMSA64_STAGE1_AP = Field<6, 2>;
+pub type VMSA64_STAGE2_MEM_ATTR = Field<2, 4>;
+pub type VMSA64_STAGE2_AP = Field<6, 2>;
+pub type VMSA64_SHAREABILITY = Field<8, 2>;
+pub type VMSA64_ACCESS_FLAG = Field<10, 1>;
+pub type VMSA64_STAGE1_ALIAS = Field<11, 1>;
+pub type VMSA64_OUTPUT_ADDRESS = Field<12, 36>;
+pub type VMSA64_GUARDED = Field<50, 1>;
+pub type VMSA64_DIRTY_BIT_MODIFIER = Field<51, 1>;
+pub type VMSA64_CONTIGUOUS = Field<52, 1>;
+pub type VMSA64_PXN = Field<53, 1>;
+pub type VMSA64_UXN = Field<54, 1>;
+pub type VMSA64_STAGE2_XN = Field<53, 2>;
+pub type VMSA64_SOFTWARE = Field<55, 4>;
+pub type VMSA64_PXN_TABLE = Field<59, 1>;
+pub type VMSA64_UXN_TABLE = Field<60, 1>;
+pub type VMSA64_AP_TABLE = Field<61, 2>;
+pub type VMSA64_NS_TABLE = Field<63, 1>;
+
+pub const ADDRESS_FIELD_MASK: u128 = VMSA64_OUTPUT_ADDRESS::mask();
+
+pub mod stage1_leaf {
+    use super::*;
+    pub const USED_FIELDS_MASK: u128 = VMSA64_VALID::mask()
+        | VMSA64_TABLE_OR_PAGE::mask()
+        | VMSA64_STAGE1_ATTR_INDEX::mask()
+        | VMSA64_STAGE1_NS::mask()
+        | VMSA64_STAGE1_AP::mask()
+        | VMSA64_SHAREABILITY::mask()
+        | VMSA64_ACCESS_FLAG::mask()
+        | VMSA64_STAGE1_ALIAS::mask()
+        | VMSA64_OUTPUT_ADDRESS::mask()
+        | VMSA64_GUARDED::mask()
+        | VMSA64_DIRTY_BIT_MODIFIER::mask()
+        | VMSA64_CONTIGUOUS::mask()
+        | VMSA64_PXN::mask()
+        | VMSA64_UXN::mask()
+        | VMSA64_SOFTWARE::mask();
+    pub const RES0_MASK: u128 = (!USED_FIELDS_MASK) & u64::MAX as u128;
+    pub const RES1_MASK: u128 = VMSA64_VALID::mask();
+}
+
+pub mod stage2_leaf {
+    use super::*;
+    pub const USED_FIELDS_MASK: u128 = VMSA64_VALID::mask()
+        | VMSA64_TABLE_OR_PAGE::mask()
+        | VMSA64_STAGE2_MEM_ATTR::mask()
+        | VMSA64_STAGE2_AP::mask()
+        | VMSA64_SHAREABILITY::mask()
+        | VMSA64_ACCESS_FLAG::mask()
+        | VMSA64_OUTPUT_ADDRESS::mask()
+        | VMSA64_DIRTY_BIT_MODIFIER::mask()
+        | VMSA64_CONTIGUOUS::mask()
+        | VMSA64_STAGE2_XN::mask()
+        | VMSA64_SOFTWARE::mask();
+    pub const RES0_MASK: u128 = (!USED_FIELDS_MASK) & u64::MAX as u128;
+    pub const RES1_MASK: u128 = VMSA64_VALID::mask();
+}
+
+pub mod stage1_table {
+    use super::*;
+    pub const USED_FIELDS_MASK: u128 = VMSA64_VALID::mask()
+        | VMSA64_TABLE_OR_PAGE::mask()
+        | VMSA64_OUTPUT_ADDRESS::mask()
+        | VMSA64_SOFTWARE::mask()
+        | VMSA64_PXN_TABLE::mask()
+        | VMSA64_UXN_TABLE::mask()
+        | VMSA64_AP_TABLE::mask()
+        | VMSA64_NS_TABLE::mask();
+    pub const RES0_MASK: u128 = (!USED_FIELDS_MASK) & u64::MAX as u128;
+    pub const RES1_MASK: u128 = VMSA64_VALID::mask() | VMSA64_TABLE_OR_PAGE::mask();
+}
+
+pub mod stage2_table {
+    use super::*;
+    pub const USED_FIELDS_MASK: u128 = VMSA64_VALID::mask()
+        | VMSA64_TABLE_OR_PAGE::mask()
+        | VMSA64_OUTPUT_ADDRESS::mask()
+        | VMSA64_SOFTWARE::mask();
+    pub const RES0_MASK: u128 = (!USED_FIELDS_MASK) & u64::MAX as u128;
+    pub const RES1_MASK: u128 = VMSA64_VALID::mask() | VMSA64_TABLE_OR_PAGE::mask();
+}
+
+const _: () = {
+    assert_class(
+        stage1_leaf::USED_FIELDS_MASK,
+        stage1_leaf::RES0_MASK,
+        stage1_leaf::RES1_MASK,
+    );
+    assert_class(
+        stage2_leaf::USED_FIELDS_MASK,
+        stage2_leaf::RES0_MASK,
+        stage2_leaf::RES1_MASK,
+    );
+    assert_class(
+        stage1_table::USED_FIELDS_MASK,
+        stage1_table::RES0_MASK,
+        stage1_table::RES1_MASK,
+    );
+    assert_class(
+        stage2_table::USED_FIELDS_MASK,
+        stage2_table::RES0_MASK,
+        stage2_table::RES1_MASK,
+    );
+
+    assert_disjoint(&[
+        VMSA64_VALID::mask(),
+        VMSA64_TABLE_OR_PAGE::mask(),
+        VMSA64_STAGE1_ATTR_INDEX::mask(),
+        VMSA64_STAGE1_NS::mask(),
+        VMSA64_STAGE1_AP::mask(),
+        VMSA64_SHAREABILITY::mask(),
+        VMSA64_ACCESS_FLAG::mask(),
+        VMSA64_STAGE1_ALIAS::mask(),
+        VMSA64_OUTPUT_ADDRESS::mask(),
+        VMSA64_GUARDED::mask(),
+        VMSA64_DIRTY_BIT_MODIFIER::mask(),
+        VMSA64_CONTIGUOUS::mask(),
+        VMSA64_PXN::mask(),
+        VMSA64_UXN::mask(),
+        VMSA64_SOFTWARE::mask(),
+    ]);
+    assert_disjoint(&[
+        VMSA64_VALID::mask(),
+        VMSA64_TABLE_OR_PAGE::mask(),
+        VMSA64_STAGE2_MEM_ATTR::mask(),
+        VMSA64_STAGE2_AP::mask(),
+        VMSA64_SHAREABILITY::mask(),
+        VMSA64_ACCESS_FLAG::mask(),
+        VMSA64_OUTPUT_ADDRESS::mask(),
+        VMSA64_DIRTY_BIT_MODIFIER::mask(),
+        VMSA64_CONTIGUOUS::mask(),
+        VMSA64_STAGE2_XN::mask(),
+        VMSA64_SOFTWARE::mask(),
+    ]);
+    assert_disjoint(&[
+        VMSA64_VALID::mask(),
+        VMSA64_TABLE_OR_PAGE::mask(),
+        VMSA64_OUTPUT_ADDRESS::mask(),
+        VMSA64_SOFTWARE::mask(),
+        VMSA64_PXN_TABLE::mask(),
+        VMSA64_UXN_TABLE::mask(),
+        VMSA64_AP_TABLE::mask(),
+        VMSA64_NS_TABLE::mask(),
+    ]);
 };
-use crate::translation::{Stage1, Stage2};
 
-use crate::table::TableTransition;
-
-use super::{
-    DescriptorError, DescriptorLayout, RawFieldBlock, decode_direct_output_address,
-    encode_direct_address, require_step_by_one_transition,
-};
-
-pub(super) const VMSA64_VALID: u64 = 1 << 0;
-pub(super) const VMSA64_TABLE_OR_PAGE: u64 = 1 << 1;
-const VMSA64_TYPE_MASK: u64 = 0b11;
-const VMSA64_ADDR_FIELD_MASK: u128 = 0x0000_FFFF_FFFF_F000;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa64Layout<S, G>(PhantomData<(S, G)>);
-
-impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64 {
-    type Layout = Vmsa64Layout<Stage1, G>;
+const fn assert_class(used: u128, res0: u128, res1: u128) {
+    assert!(used & res0 == 0);
+    assert!(res0 & res1 == 0);
+    assert!(used & res1 == res1);
 }
 
-impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64 {
-    type Layout = Vmsa64Layout<Stage2, G>;
-}
-
-impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout<Stage1, G> {
-    type LeafFields = Vmsa64Stage1LeafFields;
-    type TableFields = Vmsa64Stage1TableFields;
-
-    const ADDRESS_FIELD_MASK: u128 = VMSA64_ADDR_FIELD_MASK;
-
-    fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(G::KIND, raw, level)
-    }
-
-    fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
-        Vmsa64Stage1LeafFields {
-            lower: RawFieldBlock::from_masked(((raw >> 2) & 0x3ff) as u128),
-            upper: RawFieldBlock::from_masked(((raw >> 52) & 0x7) as u128),
-            dirty_bit_modifier: raw & (1 << 51) != 0,
-            guarded: raw & (1 << 50) != 0,
-            software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
-        }
-    }
-
-    fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
-        Vmsa64Stage1TableFields {
-            upper: RawFieldBlock::from_masked(((raw >> 59) & 0x1f) as u128),
-            software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
-        }
-    }
-
-    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u64 {
-        let address = encode_direct_address(output_pa, Self::ADDRESS_FIELD_MASK);
-
-        address as u64
-            | (fields.lower.bits() as u64) << 2
-            | (fields.upper.bits() as u64) << 52
-            | (fields.guarded as u64) << 50
-            | (fields.dirty_bit_modifier as u64) << 51
-            | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(G::KIND, level)
-    }
-
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        transition: TableTransition<Vmsa64, G>,
-        fields: Self::TableFields,
-    ) -> Result<u64, DescriptorError> {
-        require_step_by_one_transition(transition)?;
-        let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
-
-        Ok(address as u64
-            | (fields.software.bits() as u64) << 55
-            | (fields.upper.bits() as u64) << 59
-            | VMSA64_VALID
-            | VMSA64_TABLE_OR_PAGE)
-    }
-
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        decode_direct_output_address(raw as u128, Self::ADDRESS_FIELD_MASK)
-    }
-}
-
-impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout<Stage2, G> {
-    type LeafFields = Vmsa64Stage2LeafFields;
-    type TableFields = Vmsa64Stage2TableFields;
-
-    const ADDRESS_FIELD_MASK: u128 = VMSA64_ADDR_FIELD_MASK;
-
-    fn kind(raw: u64, level: Level) -> DescriptorKind {
-        vmsa64_kind(G::KIND, raw, level)
-    }
-
-    fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
-        let upper = (raw >> 52) & 0b111;
-        Vmsa64Stage2LeafFields {
-            lower: RawFieldBlock::from_masked(((raw >> 2) & 0x1ff) as u128),
-            upper: RawFieldBlock::from_masked(upper as u128),
-            dirty_bit_modifier: raw & (1 << 51) != 0,
-            software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
-        }
-    }
-
-    fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
-        Vmsa64Stage2TableFields {
-            software: RawFieldBlock::from_masked(((raw >> 55) & 0xf) as u128),
-        }
-    }
-
-    fn leaf_descriptor(output_pa: PhysAddr, level: Level, fields: Self::LeafFields) -> u64 {
-        let address = encode_direct_address(output_pa, Self::ADDRESS_FIELD_MASK);
-        let upper = fields.upper.bits() as u64;
-
-        address as u64
-            | (fields.lower.bits() as u64) << 2
-            | (upper & 1) << 52
-            | ((upper >> 1) & 0b11) << 53
-            | (fields.dirty_bit_modifier as u64) << 51
-            | (fields.software.bits() as u64) << 55
-            | vmsa64_leaf_kind_bits(G::KIND, level)
-    }
-
-    fn table_descriptor(
-        table_pa: PhysAddr,
-        transition: TableTransition<Vmsa64, G>,
-        fields: Self::TableFields,
-    ) -> Result<u64, DescriptorError> {
-        require_step_by_one_transition(transition)?;
-        let address = encode_direct_address(table_pa, Self::ADDRESS_FIELD_MASK);
-        Ok(address as u64
-            | (fields.software.bits() as u64) << 55
-            | VMSA64_VALID
-            | VMSA64_TABLE_OR_PAGE)
-    }
-
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        decode_direct_output_address(raw as u128, Self::ADDRESS_FIELD_MASK)
-    }
-}
-
-pub fn vmsa64_supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
-    level == Level::L3 || vmsa64_supports_block_descriptor(granule, level)
-}
-
-pub(super) fn vmsa64_kind(granule: GranuleKind, raw: u64, level: Level) -> DescriptorKind {
-    match raw & VMSA64_TYPE_MASK {
-        0b00 => DescriptorKind::Invalid,
-        0b01 if vmsa64_supports_block_descriptor(granule, level) => DescriptorKind::Block,
-        0b11 if level < Level::L3 => DescriptorKind::Table,
-        0b11 if level == Level::L3 => DescriptorKind::Page,
-        _ => DescriptorKind::Invalid,
-    }
-}
-
-pub(super) fn vmsa64_leaf_kind_bits(granule: GranuleKind, level: Level) -> u64 {
-    if level == Level::L3 {
-        VMSA64_VALID | VMSA64_TABLE_OR_PAGE
-    } else if vmsa64_supports_block_descriptor(granule, level) {
-        VMSA64_VALID
-    } else {
-        debug_assert!(false, "unsupported VMSAv8-64 block level");
-        0
-    }
-}
-
-const fn vmsa64_supports_block_descriptor(granule: GranuleKind, level: Level) -> bool {
-    match (granule, level.as_i8()) {
-        (GranuleKind::Size4KiB, 1 | 2) => true,
-        (GranuleKind::Size16KiB | GranuleKind::Size64KiB, 2) => true,
-        _ => false,
+const fn assert_disjoint(fields: &[u128]) {
+    let mut used = 0;
+    let mut index = 0;
+    while index < fields.len() {
+        assert!(used & fields[index] == 0);
+        used |= fields[index];
+        index += 1;
     }
 }
