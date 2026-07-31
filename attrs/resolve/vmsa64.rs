@@ -222,3 +222,328 @@ where
         },
     })
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ResolvedVmsa64Stage2LeafControls {
+    pub shareability: RawShareability,
+    pub access_flag: bool,
+    pub dirty_bit_modifier: bool,
+    pub contiguous: bool,
+    pub software: FourBit,
+}
+
+type ResolvedVmsa64Stage2LeafAttrs = ResolvedStage2LeafAttrs<
+    FourBit,
+    (crate::attrs::Stage2Ap, crate::attrs::Stage2ExecuteNever),
+    bool,
+    ResolvedVmsa64Stage2LeafControls,
+>;
+
+fn resolve_vmsa64_stage2_leaf_fixed_resolved<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
+) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    resolve_vmsa64_stage2_leaf_inner::<P, C>(
+        config,
+        attrs.memory,
+        attrs.permissions,
+        resolve_fixed_nonsecure_stage2_pas(attrs.output_address_space),
+        false,
+        attrs.controls,
+    )
+}
+
+fn resolve_vmsa64_stage2_leaf_realm_resolved<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        RealmOrNonSecurePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    resolve_vmsa64_stage2_leaf_inner::<P, C>(
+        config,
+        attrs.memory,
+        attrs.permissions,
+        resolve_realm_stage2_pas(attrs.output_address_space),
+        true,
+        attrs.controls,
+    )
+}
+
+fn resolve_vmsa64_stage2_leaf_secure_resolved<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        SecureSelectablePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
+{
+    let ns = resolve_configured_secure_stage2_pas(config, attrs.output_address_space)?;
+    resolve_vmsa64_stage2_leaf_inner::<P, C>(
+        config,
+        attrs.memory,
+        attrs.permissions,
+        ns,
+        false,
+        attrs.controls,
+    )
+}
+
+fn resolve_vmsa64_stage2_leaf_inner<P, C>(
+    config: &C,
+    memory: crate::attrs::Stage2MemoryAttributes,
+    permissions: Stage2LeafPermissions,
+    descriptor_ns: bool,
+    descriptor_ns_uses_software_bit0: bool,
+    controls: SemanticVmsa64Stage2LeafControls,
+) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    let mut software = software_four(controls.software)?;
+    if descriptor_ns_uses_software_bit0 {
+        if software.bits() & 1 != 0 {
+            return Err(AttrError::ConflictingSemanticAttributes);
+        }
+        software = FourBit::new(software.bits() | descriptor_ns as u8)?;
+    }
+    Ok(ResolvedStage2LeafAttrs {
+        memory: resolve_stage2_memory(config, memory)?,
+        permissions: encode_stage2_direct_permissions(permissions, P::XNX)?,
+        output_address_space: descriptor_ns,
+        controls: ResolvedVmsa64Stage2LeafControls {
+            shareability: RawShareability::from_bits(controls.shareability as u8)?,
+            access_flag: controls.access_flag,
+            dirty_bit_modifier: matches!(
+                controls.dirty_management,
+                crate::attrs::DirtyBitManagement::HardwareManaged
+            ),
+            contiguous: controls.contiguous,
+            software,
+        },
+    })
+}
+
+const fn raw_vmsa64_stage2_leaf(
+    resolved: ResolvedVmsa64Stage2LeafAttrs,
+) -> RawVmsa64Stage2LeafAttrs {
+    RawVmsa64Stage2LeafAttrs {
+        mem_attr: resolved.memory,
+        access: resolved.permissions.0,
+        shareability: resolved.controls.shareability,
+        access_flag: resolved.controls.access_flag,
+        dirty_bit_modifier: resolved.controls.dirty_bit_modifier,
+        contiguous: resolved.controls.contiguous,
+        execute_never: resolved.permissions.1,
+        software: resolved.controls.software,
+    }
+}
+
+pub(super) fn resolve_vmsa64_stage2_leaf_fixed<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
+) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    resolve_vmsa64_stage2_leaf_fixed_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
+}
+
+pub(super) fn resolve_vmsa64_stage2_leaf_realm<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        RealmOrNonSecurePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    resolve_vmsa64_stage2_leaf_realm_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
+}
+
+pub(super) fn resolve_vmsa64_stage2_leaf_secure<P, C>(
+    config: &C,
+    attrs: SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        SecureSelectablePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
+{
+    resolve_vmsa64_stage2_leaf_secure_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
+}
+
+pub(super) fn decode_vmsa64_stage2_leaf_realm<P, C>(
+    config: &C,
+    raw: RawVmsa64Stage2LeafAttrs,
+) -> Result<
+    SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        RealmOrNonSecurePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+    AttrError,
+>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    let ns = raw.software.bits() & 1 != 0;
+    Ok(SemanticStage2LeafAttrs {
+        memory: decode_stage2_memory(config, raw.mem_attr)?,
+        permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
+        output_address_space: decode_realm_stage2_pas(ns),
+        controls: SemanticVmsa64Stage2LeafControls {
+            shareability: decode_shareability(raw.shareability)?,
+            access_flag: raw.access_flag,
+            dirty_management: if raw.dirty_bit_modifier {
+                crate::attrs::DirtyBitManagement::HardwareManaged
+            } else {
+                crate::attrs::DirtyBitManagement::SoftwareManaged
+            },
+            contiguous: raw.contiguous,
+            software: SoftwareMetadata::new((raw.software.bits() & !1).into()),
+        },
+    })
+}
+
+pub(super) fn decode_vmsa64_stage2_leaf_secure<P, C>(
+    config: &C,
+    raw: RawVmsa64Stage2LeafAttrs,
+) -> Result<
+    SemanticStage2LeafAttrs<
+        Stage2LeafPermissions,
+        SecureSelectablePa,
+        SemanticVmsa64Stage2LeafControls,
+    >,
+    AttrError,
+>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
+{
+    Ok(SemanticStage2LeafAttrs {
+        memory: decode_stage2_memory(config, raw.mem_attr)?,
+        permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
+        output_address_space: decode_configured_secure_stage2_pas(config, false)?,
+        controls: decode_vmsa64_stage2_controls(raw)?,
+    })
+}
+
+pub(super) fn decode_vmsa64_stage2_leaf_fixed<P, C>(
+    config: &C,
+    raw: RawVmsa64Stage2LeafAttrs,
+) -> Result<
+    SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
+    AttrError,
+>
+where
+    P: Stage2PermissionModel,
+    C: Stage2MemoryConfig,
+{
+    Ok(SemanticStage2LeafAttrs {
+        memory: decode_stage2_memory(config, raw.mem_attr)?,
+        permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
+        output_address_space: (),
+        controls: decode_vmsa64_stage2_controls(raw)?,
+    })
+}
+
+fn decode_vmsa64_stage2_controls(
+    raw: RawVmsa64Stage2LeafAttrs,
+) -> Result<SemanticVmsa64Stage2LeafControls, AttrError> {
+    Ok(SemanticVmsa64Stage2LeafControls {
+        shareability: decode_shareability(raw.shareability)?,
+        access_flag: raw.access_flag,
+        dirty_management: if raw.dirty_bit_modifier {
+            crate::attrs::DirtyBitManagement::HardwareManaged
+        } else {
+            crate::attrs::DirtyBitManagement::SoftwareManaged
+        },
+        contiguous: raw.contiguous,
+        software: SoftwareMetadata::new(raw.software.bits().into()),
+    })
+}
+
+pub(super) fn resolve_vmsa64_stage2_table(
+    attrs: SemanticVmsa64Stage2TableAttrs,
+) -> Result<RawVmsa64Stage2TableAttrs, AttrError> {
+    Ok(RawVmsa64Stage2TableAttrs {
+        software: software_four(attrs.software)?,
+    })
+}
+
+pub(super) fn decode_vmsa64_stage2_table(
+    raw: RawVmsa64Stage2TableAttrs,
+) -> Result<SemanticVmsa64Stage2TableAttrs, AttrError> {
+    Ok(SemanticVmsa64Stage2TableAttrs {
+        software: SoftwareMetadata::new(raw.software.bits().into()),
+    })
+}
+
+fn resolve_stage1_alias<P, A>(global: bool, pas: RawStage1LeafPas) -> Result<bool, AttrError>
+where
+    P: Stage1DirectPermissionModel,
+    A: Stage1PasResolver,
+{
+    if A::USES_NSE {
+        if !global {
+            return Err(AttrError::ConflictingSemanticAttributes);
+        }
+        Ok(pas.nse)
+    } else if P::SUPPORTS_EL0 {
+        if pas.nse {
+            return Err(AttrError::InvalidOutputAddressSpace);
+        }
+        Ok(!global)
+    } else if global && !pas.nse {
+        Ok(false)
+    } else {
+        Err(AttrError::ConflictingSemanticAttributes)
+    }
+}
+
+fn decode_stage1_alias<P, A>(alias: bool) -> Result<(bool, bool), AttrError>
+where
+    P: Stage1DirectPermissionModel,
+    A: Stage1PasResolver,
+{
+    if A::USES_NSE {
+        Ok((alias, true))
+    } else if P::SUPPORTS_EL0 {
+        Ok((false, !alias))
+    } else if alias {
+        Err(AttrError::ConflictingSemanticAttributes)
+    } else {
+        Ok((false, true))
+    }
+}
+
+fn software_four(metadata: SoftwareMetadata) -> Result<FourBit, AttrError> {
+    if metadata.value() > 0xf {
+        Err(AttrError::RawFieldOutOfRange)
+    } else {
+        FourBit::new(metadata.value() as u8)
+    }
+}
