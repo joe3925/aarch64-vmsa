@@ -1,7 +1,7 @@
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 use crate::table::{RootTable, TableGeometry};
-use crate::walkers::WalkLeafKind;
+use crate::translation::walk::WalkLeafKind;
 
 use super::MapperError;
 
@@ -31,6 +31,22 @@ where
             max_addr_bits,
         });
     }
+
+    if !matches!(
+        root.output_addr_bits(),
+        32 | 36 | 40 | 42 | 44 | 48 | 52 | 56
+    ) || root.output_addr_bits() > F::OUTPUT_ADDRESS_BITS
+    {
+        return Err(MapperError::InvalidConfiguredOutputAddressBits {
+            output_address_bits: root.output_addr_bits(),
+            format_max_bits: F::OUTPUT_ADDRESS_BITS,
+        });
+    }
+
+    require_output_address::<AccessErrorKind, FrameErrorKind>(
+        root.addr().phys(),
+        root.output_addr_bits(),
+    )?;
 
     Ok(())
 }

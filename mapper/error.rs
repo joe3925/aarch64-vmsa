@@ -1,8 +1,7 @@
 use crate::address::{Level, PhysAddr};
-use crate::attrs::AttrError;
 use crate::descriptor::DescriptorError;
 use crate::table::{AccessError, TableAddressError, TableError};
-use crate::walkers::{WalkCursorError, WalkInputAddr};
+use crate::translation::walk::{WalkCursorError, WalkInputAddr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MapperError<AccessErrorKind, FrameErrorKind> {
@@ -12,7 +11,6 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
     Table(TableError),
     TableAddress(TableAddressError),
     Descriptor(DescriptorError),
-    Attr(AttrError),
     Cursor(WalkCursorError),
 
     InvalidRootLevel {
@@ -40,6 +38,10 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
     OutputAddressOverflow {
         base: PhysAddr,
         offset: u64,
+    },
+    InvalidConfiguredOutputAddressBits {
+        output_address_bits: u8,
+        format_max_bits: u8,
     },
     OutputAddressOutOfRange {
         addr: PhysAddr,
@@ -107,14 +109,6 @@ impl<AccessErrorKind, FrameErrorKind> From<DescriptorError>
     }
 }
 
-impl<AccessErrorKind, FrameErrorKind> From<AttrError>
-    for MapperError<AccessErrorKind, FrameErrorKind>
-{
-    fn from(error: AttrError) -> Self {
-        Self::Attr(error)
-    }
-}
-
 impl<AccessErrorKind, FrameErrorKind> From<WalkCursorError>
     for MapperError<AccessErrorKind, FrameErrorKind>
 {
@@ -124,20 +118,24 @@ impl<AccessErrorKind, FrameErrorKind> From<WalkCursorError>
 }
 
 pub(super) fn map_walk_error<AccessErrorKind, FrameErrorKind>(
-    error: crate::walkers::WalkError<AccessErrorKind>,
+    error: crate::translation::walk::WalkError<AccessErrorKind>,
 ) -> MapperError<AccessErrorKind, FrameErrorKind> {
     match error {
-        crate::walkers::WalkError::Access(error) => MapperError::Access(error),
-        crate::walkers::WalkError::AccessLocation(error) => MapperError::AccessLocation(error),
-        crate::walkers::WalkError::Cursor(error) => MapperError::Cursor(error),
-        crate::walkers::WalkError::InvalidTableAddress(error) => MapperError::TableAddress(error),
-        crate::walkers::WalkError::EntryIndexOutOfRange { index, entries } => {
+        crate::translation::walk::WalkError::Access(error) => MapperError::Access(error),
+        crate::translation::walk::WalkError::AccessLocation(error) => {
+            MapperError::AccessLocation(error)
+        }
+        crate::translation::walk::WalkError::Cursor(error) => MapperError::Cursor(error),
+        crate::translation::walk::WalkError::InvalidTableAddress(error) => {
+            MapperError::TableAddress(error)
+        }
+        crate::translation::walk::WalkError::EntryIndexOutOfRange { index, entries } => {
             MapperError::Table(TableError::EntryIndexOutOfRange { index, entries })
         }
-        crate::walkers::WalkError::TableDescriptorAtFinalLevel { level } => {
+        crate::translation::walk::WalkError::TableDescriptorAtFinalLevel { level } => {
             MapperError::InvalidLevel { level }
         }
-        crate::walkers::WalkError::OutputAddressOverflow { base, offset } => {
+        crate::translation::walk::WalkError::OutputAddressOverflow { base, offset } => {
             MapperError::OutputAddressOverflow { base, offset }
         }
     }

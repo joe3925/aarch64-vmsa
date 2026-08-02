@@ -1,10 +1,7 @@
 use crate::address::{Level, PhysAddr, TranslationGranule};
-use crate::attrs::{
-    AttrProfileOf, AttributeCodec, LeafAttrsOf, LiveAttributeConfiguration, StageOf,
-};
 use crate::descriptor::{DescriptorFormat, HasLayout};
-use crate::translation_regime::TranslationRegime;
-use crate::walkers::{WalkInputAddr, WalkLeafKind};
+use crate::regime::{LeafFieldsOf, StageOf, TranslationRegime};
+use crate::translation::walk::{WalkInputAddr, WalkLeafKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MapLeafOutcome {
@@ -53,52 +50,44 @@ impl MapRangeOutcome {
     }
 }
 
-pub struct UnmapOutcome<F, R, G, C>
+pub struct UnmapOutcome<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
-    pub(super) old: Mapping<F, R, G, C>,
+    pub(super) old: Mapping<F, R, G>,
 }
 
-impl<F, R, G, C> UnmapOutcome<F, R, G, C>
+impl<F, R, G> UnmapOutcome<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
-    pub const fn old(&self) -> &Mapping<F, R, G, C> {
+    pub const fn old(&self) -> &Mapping<F, R, G> {
         &self.old
     }
 }
 
-pub struct UnmapReclaimOutcome<F, R, G, C>
+pub struct UnmapReclaimOutcome<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
-    pub(super) old: Mapping<F, R, G, C>,
+    pub(super) old: Mapping<F, R, G>,
     pub(super) tables_freed: u8,
     pub(super) root_now_empty: bool,
 }
 
-impl<F, R, G, C> UnmapReclaimOutcome<F, R, G, C>
+impl<F, R, G> UnmapReclaimOutcome<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
-    pub const fn old(&self) -> &Mapping<F, R, G, C> {
+    pub const fn old(&self) -> &Mapping<F, R, G> {
         &self.old
     }
 
@@ -111,13 +100,11 @@ where
     }
 }
 
-pub struct Mapping<F, R, G, C>
+pub struct Mapping<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
     pub(super) input: WalkInputAddr,
     pub(super) output: PhysAddr,
@@ -128,16 +115,14 @@ where
     pub(super) entry_index: usize,
     pub(super) raw: F::Raw,
     pub(super) kind: WalkLeafKind,
-    pub(super) attrs: LeafAttrsOf<F, R, G, C>,
+    pub(super) fields: LeafFieldsOf<F, R, G>,
 }
 
-impl<F, R, G, C> Mapping<F, R, G, C>
+impl<F, R, G> Mapping<F, R, G>
 where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    C: LiveAttributeConfiguration,
-    AttrProfileOf<R>: AttributeCodec<F, StageOf<R>, G, C>,
 {
     pub const fn input(&self) -> WalkInputAddr {
         self.input
@@ -175,7 +160,7 @@ where
         self.kind
     }
 
-    pub const fn attrs(&self) -> &LeafAttrsOf<F, R, G, C> {
-        &self.attrs
+    pub const fn fields(&self) -> &LeafFieldsOf<F, R, G> {
+        &self.fields
     }
 }
