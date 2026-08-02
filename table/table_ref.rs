@@ -66,15 +66,11 @@ where
         if index >= self.entries() {
             return None;
         }
-
-        let ptr = unsafe { self.base.as_ptr().add(index) };
-
-        NonNull::new(ptr)
+        NonNull::new(unsafe { self.base.as_ptr().add(index) })
     }
 
     pub fn read(&self, index: usize) -> Option<F::Raw> {
         let ptr = self.entry_ptr(index)?;
-
         Some(unsafe { F::read_descriptor(ptr.as_ptr()) })
     }
 
@@ -108,20 +104,20 @@ where
         }
     }
 
-    pub const fn level(&self) -> Level {
-        self.shape.level()
+    pub fn level(&self) -> Level {
+        self.as_table().level()
     }
 
-    pub const fn stride_count(&self) -> TableStrideCount {
-        self.shape.stride_count()
+    pub fn stride_count(&self) -> TableStrideCount {
+        self.as_table().stride_count()
     }
 
-    pub const fn shape(&self) -> TableShape<F, G> {
-        self.shape
+    pub fn shape(&self) -> TableShape<F, G> {
+        self.as_table().shape()
     }
 
-    pub const fn base(&self) -> NonNull<F::Raw> {
-        self.base
+    pub fn base(&self) -> NonNull<F::Raw> {
+        self.as_table().base()
     }
 
     pub fn as_table(&self) -> TranslationTable<'_, F, G> {
@@ -129,23 +125,15 @@ where
     }
 
     pub fn entries(&self) -> usize {
-        self.shape.entries()
+        self.as_table().entries()
     }
 
     pub fn entry_ptr(&self, index: usize) -> Option<NonNull<F::Raw>> {
-        if index >= self.entries() {
-            return None;
-        }
-
-        let ptr = unsafe { self.base.as_ptr().add(index) };
-
-        NonNull::new(ptr)
+        self.as_table().entry_ptr(index)
     }
 
     pub fn read(&self, index: usize) -> Option<F::Raw> {
-        let ptr = self.entry_ptr(index)?;
-
-        Some(unsafe { F::read_descriptor(ptr.as_ptr()) })
+        self.as_table().read(index)
     }
 
     pub fn write(&mut self, index: usize, raw: F::Raw) -> Result<(), TableError> {
@@ -164,18 +152,18 @@ where
     }
 
     pub fn index_bits(&self) -> u8 {
-        TableGeometry::<F, G>::index_bits()
+        self.as_table().index_bits()
     }
 
     pub fn index_mask(&self) -> u64 {
-        TableGeometry::<F, G>::index_mask()
+        self.as_table().index_mask()
     }
 
     pub fn level_shift(&self) -> u8 {
-        TableGeometry::<F, G>::level_shift(self.level())
+        self.as_table().level_shift()
     }
 
     pub fn index_for_va(&self, va: VirtAddr) -> Option<usize> {
-        self.shape.index_for_input(va.0)
+        self.as_table().index_for_va(va)
     }
 }

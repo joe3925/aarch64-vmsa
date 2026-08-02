@@ -377,11 +377,22 @@ where
             return Err(AccessError::TablePathIndexOutOfRange { index, entries });
         }
 
-        let index_bits = TableGeometry::<F, G>::index_bits() * stride_count.raw();
-        let new_len = self.len + 1;
+        let index_bits = TableGeometry::<F, G>::index_bits()
+            .checked_mul(stride_count.raw())
+            .ok_or(AccessError::TablePathCapacityExceeded {
+                len: self.len,
+                index_bits: u8::MAX,
+            })?;
+        let new_len =
+            self.len
+                .checked_add(1)
+                .ok_or(AccessError::TablePathStrideCapacityExceeded {
+                    len: self.len,
+                    stride_bits: PATH_STRIDE_BITS,
+                })?;
 
         if self
-            .bits_len()
+            .bits_len()?
             .checked_add(index_bits)
             .is_none_or(|bits| bits > u128::BITS as u8)
         {
@@ -403,7 +414,7 @@ where
             });
         }
 
-        let shift = self.bits_len() as u32;
+        let shift = self.bits_len()? as u32;
         self.bits |= (index as u128) << shift;
         self.index_strides |= ((stride_count.raw() - 1) as u128) << stride_shift;
         self.level_steps |= ((level_step - 1) as u128) << stride_shift;
@@ -510,15 +521,29 @@ where
         Ok(level)
     }
 
-    fn bits_len(&self) -> u8 {
+    fn bits_len(&self) -> Result<u8, AccessError> {
         let mut bits = 0u8;
         for depth in 0..self.len {
-            if let Some(index_stride_count) = self.index_stride_count(depth) {
-                bits =
-                    bits.saturating_add(TableGeometry::<F, G>::index_bits() * index_stride_count);
-            }
+            let index_stride_count = self.index_stride_count(depth).ok_or(
+                AccessError::TablePathStrideCapacityExceeded {
+                    len: self.len,
+                    stride_bits: PATH_STRIDE_BITS,
+                },
+            )?;
+            let entry_bits = TableGeometry::<F, G>::index_bits()
+                .checked_mul(index_stride_count)
+                .ok_or(AccessError::TablePathCapacityExceeded {
+                    len: self.len,
+                    index_bits: u8::MAX,
+                })?;
+            bits = bits
+                .checked_add(entry_bits)
+                .ok_or(AccessError::TablePathCapacityExceeded {
+                    len: self.len,
+                    index_bits: entry_bits,
+                })?;
         }
-        bits
+        Ok(bits)
     }
 
     fn index_stride_count(&self, depth: u8) -> Option<u8> {

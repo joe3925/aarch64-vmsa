@@ -14,6 +14,7 @@ where
     addr: TablePhysAddr<G>,
     level: Level,
     addr_bits: u8,
+    output_addr_bits: u8,
     _marker: PhantomData<F>,
 }
 
@@ -22,11 +23,17 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn new(addr: TablePhysAddr<G>, level: Level, addr_bits: u8) -> Self {
+    pub const fn new(
+        addr: TablePhysAddr<G>,
+        level: Level,
+        addr_bits: u8,
+        output_addr_bits: u8,
+    ) -> Self {
         Self {
             addr,
             level,
             addr_bits,
+            output_addr_bits,
             _marker: PhantomData,
         }
     }
@@ -41,5 +48,9 @@ where
 
     pub const fn addr_bits(self) -> u8 {
         self.addr_bits
+    }
+
+    pub const fn output_addr_bits(self) -> u8 {
+        self.output_addr_bits
     }
 }
