@@ -10,12 +10,11 @@ use crate::attrs::{
 
 use super::{
     RawStage1DirectLeafPermissions, RawStage1LeafPas, RawStage1TablePermissionLimits,
-    Stage1DirectPermissionModel, Stage1MemoryConfig, Stage1PasResolver, Stage2MemoryConfig,
-    decode_configured_secure_stage2_pas, decode_realm_stage2_pas, decode_shareability,
-    decode_stage1_memory_3, decode_stage2_direct_permissions, decode_stage2_memory,
-    encode_stage2_direct_permissions, resolve_configured_secure_stage2_pas,
-    resolve_fixed_nonsecure_stage2_pas, resolve_realm_stage2_pas, resolve_stage1_memory_3,
-    resolve_stage2_memory,
+    Stage1DirectPermissionModel, Stage1MemoryConfig, Stage1MemoryResolver, Stage1PasResolver,
+    Stage2MemoryConfig, Vmsa64Stage1Memory, decode_configured_secure_stage2_pas,
+    decode_realm_stage2_pas, decode_shareability, decode_stage2_direct_permissions,
+    decode_stage2_memory, encode_stage2_direct_permissions, resolve_configured_secure_stage2_pas,
+    resolve_fixed_nonsecure_stage2_pas, resolve_realm_stage2_pas, resolve_stage2_memory,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,7 +48,7 @@ where
     A: Stage1PasResolver,
     C: Stage1MemoryConfig,
 {
-    let memory = resolve_stage1_memory_3(config, attrs.memory)?;
+    let memory = Vmsa64Stage1Memory::resolve(config, attrs.memory)?;
     let permissions = P::encode_leaf(attrs.permissions)?;
     let pas = A::resolve_leaf(attrs.pas)?;
     let alias_bit = resolve_stage1_alias::<P, A>(attrs.controls.global, pas)?;
@@ -122,7 +121,7 @@ where
 {
     let (nse, global) = decode_stage1_alias::<P, A>(raw.alias_bit)?;
     Ok(SemanticStage1LeafAttrs {
-        memory: decode_stage1_memory_3(config, raw.attr_index)?,
+        memory: Vmsa64Stage1Memory::decode(config, raw.attr_index)?,
         permissions: P::decode_leaf(RawStage1DirectLeafPermissions {
             ap: raw.ap,
             privileged_execute_never: raw.privileged_execute_never,

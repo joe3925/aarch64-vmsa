@@ -10,11 +10,11 @@ use crate::attrs::{
 };
 
 use super::{
-    RawStage1LeafPas, Stage1MemoryConfig, Stage1PasResolver, Stage1PermissionConfig,
-    Stage1PermissionResolver, Stage2MemoryConfig, Stage2PermissionConfig, Stage2PermissionResolver,
-    decode_realm_stage2_pas, decode_shareability, decode_stage1_memory_4, decode_stage2_memory,
-    resolve_configured_secure_stage2_pas, resolve_fixed_nonsecure_stage2_pas,
-    resolve_realm_stage2_pas, resolve_stage1_memory_4, resolve_stage2_memory,
+    RawStage1LeafPas, Stage1MemoryConfig, Stage1MemoryResolver, Stage1PasResolver,
+    Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PermissionConfig,
+    Stage2PermissionResolver, Vmsa128Stage1Memory, decode_realm_stage2_pas, decode_shareability,
+    decode_stage2_memory, resolve_configured_secure_stage2_pas, resolve_fixed_nonsecure_stage2_pas,
+    resolve_realm_stage2_pas, resolve_stage2_memory,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,7 +55,7 @@ where
     let pas = A::resolve_leaf(attrs.pas)?;
     let alias_bit = resolve_d128_stage1_alias::<P, A, C>(config, attrs.controls.global, pas)?;
     Ok(ResolvedStage1LeafAttrs {
-        memory: resolve_stage1_memory_4(config, attrs.memory)?,
+        memory: Vmsa128Stage1Memory::resolve(config, attrs.memory)?,
         permissions: Stage1PermissionResolver::new(config).resolve(attrs.permissions)?,
         pas,
         controls: ResolvedVmsa128Stage1LeafControls {
@@ -127,7 +127,7 @@ where
 {
     let (nse, global) = decode_d128_stage1_alias::<P, A, C>(config, raw.alias_bit)?;
     Ok(SemanticStage1LeafAttrs {
-        memory: decode_stage1_memory_4(config, raw.attr_index)?,
+        memory: Vmsa128Stage1Memory::decode(config, raw.attr_index)?,
         permissions: Stage1PermissionResolver::new(config).decode(raw.permissions)?,
         pas: A::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
         controls: SemanticVmsa128Stage1LeafControls {

@@ -4,60 +4,67 @@ use crate::attrs::{
     FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes, ThreeBit,
 };
 
-pub fn resolve_stage1_memory_3<C: Stage1MemoryConfig>(
-    config: &C,
-    attrs: MemoryAttributes,
-) -> Result<ThreeBit, AttrError> {
-    let wanted = encode_mair_attribute(attrs)?;
-    for index in 0..8 {
-        if mair_entry(config.mair(), index) == wanted {
-            return ThreeBit::new(index);
-        }
-    }
-    Err(AttrError::MemoryAttributeNotConfigured)
+pub(crate) trait Stage1MemoryResolver<C: Stage1MemoryConfig> {
+    type RawMemory: Copy;
+
+    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError>;
+    fn decode(config: &C, raw: Self::RawMemory) -> Result<MemoryAttributes, AttrError>;
 }
 
-pub fn resolve_stage1_memory_4<C: Stage1MemoryConfig>(
-    config: &C,
-    attrs: MemoryAttributes,
-) -> Result<FourBit, AttrError> {
-    let wanted = encode_mair_attribute(attrs)?;
-    for index in 0..8 {
-        if mair_entry(config.mair(), index) == wanted {
-            return FourBit::new(index);
-        }
-    }
-    if let Some(mair2) = config.mair2() {
+pub(crate) struct Vmsa64Stage1Memory;
+
+impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa64Stage1Memory {
+    type RawMemory = ThreeBit;
+
+    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError> {
+        let wanted = encode_mair_attribute(attrs)?;
         for index in 0..8 {
-            if mair_entry(mair2, index) == wanted {
-                return FourBit::new(index + 8);
+            if mair_entry(config.mair(), index) == wanted {
+                return ThreeBit::new(index);
             }
         }
+        Err(AttrError::MemoryAttributeNotConfigured)
     }
-    Err(AttrError::MemoryAttributeNotConfigured)
+
+    fn decode(config: &C, index: Self::RawMemory) -> Result<MemoryAttributes, AttrError> {
+        decode_mair_attribute(mair_entry(config.mair(), index.bits()))
+            .ok_or(AttrError::UnencodableMemoryAttribute)
+    }
 }
 
-pub fn decode_stage1_memory_3<C: Stage1MemoryConfig>(
-    config: &C,
-    index: ThreeBit,
-) -> Result<MemoryAttributes, AttrError> {
-    decode_mair_attribute(mair_entry(config.mair(), index.bits()))
-        .ok_or(AttrError::UnencodableMemoryAttribute)
-}
+pub(crate) struct Vmsa128Stage1Memory;
 
-pub fn decode_stage1_memory_4<C: Stage1MemoryConfig>(
-    config: &C,
-    index: FourBit,
-) -> Result<MemoryAttributes, AttrError> {
-    let entry = if index.bits() < 8 {
-        mair_entry(config.mair(), index.bits())
-    } else {
-        mair_entry(
-            config.mair2().ok_or(AttrError::Mair2Unavailable)?,
-            index.bits() - 8,
-        )
-    };
-    decode_mair_attribute(entry).ok_or(AttrError::UnencodableMemoryAttribute)
+impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa128Stage1Memory {
+    type RawMemory = FourBit;
+
+    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError> {
+        let wanted = encode_mair_attribute(attrs)?;
+        for index in 0..8 {
+            if mair_entry(config.mair(), index) == wanted {
+                return FourBit::new(index);
+            }
+        }
+        if let Some(mair2) = config.mair2() {
+            for index in 0..8 {
+                if mair_entry(mair2, index) == wanted {
+                    return FourBit::new(index + 8);
+                }
+            }
+        }
+        Err(AttrError::MemoryAttributeNotConfigured)
+    }
+
+    fn decode(config: &C, index: Self::RawMemory) -> Result<MemoryAttributes, AttrError> {
+        let entry = if index.bits() < 8 {
+            mair_entry(config.mair(), index.bits())
+        } else {
+            mair_entry(
+                config.mair2().ok_or(AttrError::Mair2Unavailable)?,
+                index.bits() - 8,
+            )
+        };
+        decode_mair_attribute(entry).ok_or(AttrError::UnencodableMemoryAttribute)
+    }
 }
 
 pub fn resolve_stage2_memory<C: Stage2MemoryConfig>(
