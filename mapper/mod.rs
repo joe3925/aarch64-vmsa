@@ -1,6 +1,8 @@
 mod error;
 mod invalidation;
 mod plan;
+mod reclaim;
+mod semantic;
 mod types;
 mod validate;
 
@@ -9,6 +11,9 @@ pub use self::invalidation::{Live, MapperInvalidation, MapperMode, Offline};
 pub use self::plan::{
     BoundedSklTablePlan, MaxSklTablePlan, StepByOneTablePlan, TablePlan, TablePlanContext,
     TablePlanProvider,
+};
+pub use self::semantic::{
+    SemanticMapperError, decode_semantic_leaf, decode_semantic_table, map_semantic_leaf,
 };
 pub use self::types::{
     MapLeafOutcome, MapRangeOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome,
@@ -400,6 +405,52 @@ where
         })
     }
 
+    pub fn unmap(
+        &mut self,
+        input: WalkInputAddr,
+    ) -> Result<UnmapOutcome<F, R, G>, MapperError<A::Error, P::Error>> {
+        self.require_input_addr(input.raw())?;
+
+        let leaf = {
+            let walker = self.borrowed_walker()?;
+            let Some(leaf) = walker
+                .translate(input)
+                .map_err(map_walk_error::<A::Error, P::Error>)?
+            else {
+                return Err(MapperError::NotMapped { input });
+            };
+
+            leaf
+        };
+
+        self.require_leaf_base(input, leaf.level())?;
+
+        let old_mapping = self.decode_mapping(leaf)?;
+        let old = self.write_descriptor(leaf.location(), leaf.entry_index(), F::invalid())?;
+
+        self.mode
+            .leaf_removed(leaf.location(), leaf.entry_index(), old);
+        self.mode.synchronize();
+
+        Ok(UnmapOutcome { old: old_mapping })
+    }
+
+    pub fn unmap_reclaim(
+        &mut self,
+        input: WalkInputAddr,
+    ) -> Result<UnmapReclaimOutcome<F, R, G>, MapperError<A::Error, P::Error>> {
+        self.require_input_addr(input.raw())?;
+
+        let cursor = self.cursor(input)?;
+        let result = self.unmap_reclaim_at(input, cursor)?;
+
+        Ok(UnmapReclaimOutcome {
+            old: result.old,
+            tables_freed: result.tables_freed,
+            root_now_empty: result.current_table_empty,
+        })
+    }
+
     pub(super) fn borrowed_walker(
         &self,
     ) -> Result<Walker<F, R::WalkProfile, G, &A>, MapperError<A::Error, P::Error>> {
@@ -457,6 +508,45 @@ where
         Ok(old)
     }
 
+    pub(super) fn table_has_valid_entries_except(
+        &self,
+        location: TableAccessLocation<F, G>,
+        level: Level,
+        excluded_index: usize,
+    ) -> Result<bool, MapperError<A::Error, P::Error>> {
+        let table = self
+            .access
+            .table_at(location)
+            .map_err(MapperError::Access)?;
+
+        let entries = table.entries();
+
+        if excluded_index >= entries {
+            return Err(MapperError::Table(TableError::EntryIndexOutOfRange {
+                index: excluded_index,
+                entries,
+            }));
+        }
+
+        for index in 0..entries {
+            if index == excluded_index {
+                continue;
+            }
+
+            let raw = table
+                .read(index)
+                .ok_or(TableError::EntryIndexOutOfRange { index, entries })?;
+
+            if <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::kind(raw, level)
+                != DescriptorKind::Invalid
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     fn require_input_addr(&self, addr: u64) -> Result<(), MapperError<A::Error, P::Error>> {
         validate::require_input_addr::<A::Error, P::Error>(addr, self.root.addr_bits())
     }
@@ -491,5 +581,25 @@ where
         }
 
         Ok(())
+    }
+
+    pub(super) fn require_leaf_base(
+        &self,
+        input: WalkInputAddr,
+        level: Level,
+    ) -> Result<(), MapperError<A::Error, P::Error>> {
+        let covered_size = mapping_size::<F, G, A::Error, P::Error>(level)?;
+        let covered_input_base = input.raw() & !(covered_size - 1);
+
+        if input.raw() == covered_input_base {
+            Ok(())
+        } else {
+            Err(MapperError::InputNotLeafBase {
+                input,
+                covered_input_base,
+                covered_size,
+                level,
+            })
+        }
     }
 }
