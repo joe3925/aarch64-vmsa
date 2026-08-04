@@ -1,20 +1,20 @@
 use crate::attrs::{
-    AttrError, FourBit, PasConfig, RawShareability, RawVmsa64Stage1LeafAttrs,
-    RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
-    RealmOrNonSecurePa, ResolvedStage1LeafAttrs, ResolvedStage1TableAttrs, ResolvedStage2LeafAttrs,
-    SecureSelectablePa, SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs,
-    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
-    SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, SoftwareMetadata,
-    Stage2LeafPermissions, Stage2PermissionModel, ThreeBit,
+    AttrError, FourBit, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
+    RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, ResolvedStage1LeafAttrs,
+    ResolvedStage1TableAttrs, ResolvedStage2LeafAttrs, SemanticStage1LeafAttrs,
+    SemanticStage1TableAttrs, SemanticStage2LeafAttrs, SemanticVmsa64Stage1LeafControls,
+    SemanticVmsa64Stage1TableControls, SemanticVmsa64Stage2LeafControls,
+    SemanticVmsa64Stage2TableAttrs, SoftwareMetadata, Stage2LeafPermissions, Stage2PasContext,
+    Stage2PermissionModel, ThreeBit,
 };
+use crate::descriptor::Vmsa64;
 
 use super::{
     RawStage1DirectLeafPermissions, RawStage1LeafPas, RawStage1TablePermissionLimits,
     Stage1DirectPermissionModel, Stage1MemoryConfig, Stage1MemoryResolver, Stage1PasResolver,
-    Stage2MemoryConfig, Vmsa64Stage1Memory, decode_configured_secure_stage2_pas,
-    decode_realm_stage2_pas, decode_shareability, decode_stage2_direct_permissions,
-    decode_stage2_memory, encode_stage2_direct_permissions, resolve_configured_secure_stage2_pas,
-    resolve_fixed_nonsecure_stage2_pas, resolve_realm_stage2_pas, resolve_stage2_memory,
+    Stage2MemoryConfig, Stage2PasResolver, Vmsa64Stage1Memory, decode_shareability,
+    decode_stage2_direct_permissions, decode_stage2_memory, encode_stage2_direct_permissions,
+    resolve_stage2_memory,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -238,66 +238,28 @@ type ResolvedVmsa64Stage2LeafAttrs = ResolvedStage2LeafAttrs<
     ResolvedVmsa64Stage2LeafControls,
 >;
 
-fn resolve_vmsa64_stage2_leaf_fixed_resolved<P, C>(
-    config: &C,
-    attrs: SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
-) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig,
-{
-    resolve_vmsa64_stage2_leaf_inner::<P, C>(
-        config,
-        attrs.memory,
-        attrs.permissions,
-        resolve_fixed_nonsecure_stage2_pas(attrs.output_address_space),
-        false,
-        attrs.controls,
-    )
-}
-
-fn resolve_vmsa64_stage2_leaf_realm_resolved<P, C>(
+fn resolve_vmsa64_stage2_leaf_resolved<P, A, C>(
     config: &C,
     attrs: SemanticStage2LeafAttrs<
         Stage2LeafPermissions,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >,
 ) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
 where
     P: Stage2PermissionModel,
+    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
     C: Stage2MemoryConfig,
 {
+    let mut software = software_four(attrs.controls.software)?;
+    let descriptor_ns = A::resolve(config, attrs.output_address_space, &mut software)?;
     resolve_vmsa64_stage2_leaf_inner::<P, C>(
         config,
         attrs.memory,
         attrs.permissions,
-        resolve_realm_stage2_pas(attrs.output_address_space),
-        true,
+        descriptor_ns,
         attrs.controls,
-    )
-}
-
-fn resolve_vmsa64_stage2_leaf_secure_resolved<P, C>(
-    config: &C,
-    attrs: SemanticStage2LeafAttrs<
-        Stage2LeafPermissions,
-        SecureSelectablePa,
-        SemanticVmsa64Stage2LeafControls,
-    >,
-) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    let ns = resolve_configured_secure_stage2_pas(config, attrs.output_address_space)?;
-    resolve_vmsa64_stage2_leaf_inner::<P, C>(
-        config,
-        attrs.memory,
-        attrs.permissions,
-        ns,
-        false,
-        attrs.controls,
+        software,
     )
 }
 
@@ -306,20 +268,13 @@ fn resolve_vmsa64_stage2_leaf_inner<P, C>(
     memory: crate::attrs::Stage2MemoryAttributes,
     permissions: Stage2LeafPermissions,
     descriptor_ns: bool,
-    descriptor_ns_uses_software_bit0: bool,
     controls: SemanticVmsa64Stage2LeafControls,
+    software: FourBit,
 ) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
 where
     P: Stage2PermissionModel,
     C: Stage2MemoryConfig,
 {
-    let mut software = software_four(controls.software)?;
-    if descriptor_ns_uses_software_bit0 {
-        if software.bits() & 1 != 0 {
-            return Err(AttrError::ConflictingSemanticAttributes);
-        }
-        software = FourBit::new(software.bits() | descriptor_ns as u8)?;
-    }
     Ok(ResolvedStage2LeafAttrs {
         memory: resolve_stage2_memory(config, memory)?,
         permissions: encode_stage2_direct_permissions(permissions, P::XNX)?,
@@ -352,125 +307,51 @@ const fn raw_vmsa64_stage2_leaf(
     }
 }
 
-pub(super) fn resolve_vmsa64_stage2_leaf_fixed<P, C>(
-    config: &C,
-    attrs: SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
-) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig,
-{
-    resolve_vmsa64_stage2_leaf_fixed_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
-}
-
-pub(super) fn resolve_vmsa64_stage2_leaf_realm<P, C>(
+pub(super) fn resolve_vmsa64_stage2_leaf<P, A, C>(
     config: &C,
     attrs: SemanticStage2LeafAttrs<
         Stage2LeafPermissions,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >,
 ) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
 where
     P: Stage2PermissionModel,
+    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
     C: Stage2MemoryConfig,
 {
-    resolve_vmsa64_stage2_leaf_realm_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
+    resolve_vmsa64_stage2_leaf_resolved::<P, A, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
 }
 
-pub(super) fn resolve_vmsa64_stage2_leaf_secure<P, C>(
-    config: &C,
-    attrs: SemanticStage2LeafAttrs<
-        Stage2LeafPermissions,
-        SecureSelectablePa,
-        SemanticVmsa64Stage2LeafControls,
-    >,
-) -> Result<RawVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    resolve_vmsa64_stage2_leaf_secure_resolved::<P, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
-}
-
-pub(super) fn decode_vmsa64_stage2_leaf_realm<P, C>(
+pub(super) fn decode_vmsa64_stage2_leaf<P, A, C>(
     config: &C,
     raw: RawVmsa64Stage2LeafAttrs,
 ) -> Result<
     SemanticStage2LeafAttrs<
         Stage2LeafPermissions,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >,
     AttrError,
 >
 where
     P: Stage2PermissionModel,
+    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
     C: Stage2MemoryConfig,
 {
-    let ns = raw.software.bits() & 1 != 0;
+    let mut software = raw.software;
+    let output_address_space = A::decode(config, false, &mut software)?;
     Ok(SemanticStage2LeafAttrs {
         memory: decode_stage2_memory(config, raw.mem_attr)?,
         permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
-        output_address_space: decode_realm_stage2_pas(ns),
-        controls: SemanticVmsa64Stage2LeafControls {
-            shareability: decode_shareability(raw.shareability)?,
-            access_flag: raw.access_flag,
-            dirty_management: if raw.dirty_bit_modifier {
-                crate::attrs::DirtyBitManagement::HardwareManaged
-            } else {
-                crate::attrs::DirtyBitManagement::SoftwareManaged
-            },
-            contiguous: raw.contiguous,
-            software: SoftwareMetadata::new((raw.software.bits() & !1).into()),
-        },
-    })
-}
-
-pub(super) fn decode_vmsa64_stage2_leaf_secure<P, C>(
-    config: &C,
-    raw: RawVmsa64Stage2LeafAttrs,
-) -> Result<
-    SemanticStage2LeafAttrs<
-        Stage2LeafPermissions,
-        SecureSelectablePa,
-        SemanticVmsa64Stage2LeafControls,
-    >,
-    AttrError,
->
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    Ok(SemanticStage2LeafAttrs {
-        memory: decode_stage2_memory(config, raw.mem_attr)?,
-        permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
-        output_address_space: decode_configured_secure_stage2_pas(config, false)?,
-        controls: decode_vmsa64_stage2_controls(raw)?,
-    })
-}
-
-pub(super) fn decode_vmsa64_stage2_leaf_fixed<P, C>(
-    config: &C,
-    raw: RawVmsa64Stage2LeafAttrs,
-) -> Result<
-    SemanticStage2LeafAttrs<Stage2LeafPermissions, (), SemanticVmsa64Stage2LeafControls>,
-    AttrError,
->
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig,
-{
-    Ok(SemanticStage2LeafAttrs {
-        memory: decode_stage2_memory(config, raw.mem_attr)?,
-        permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
-        output_address_space: (),
-        controls: decode_vmsa64_stage2_controls(raw)?,
+        output_address_space,
+        controls: decode_vmsa64_stage2_controls(raw, software)?,
     })
 }
 
 fn decode_vmsa64_stage2_controls(
     raw: RawVmsa64Stage2LeafAttrs,
+    software: FourBit,
 ) -> Result<SemanticVmsa64Stage2LeafControls, AttrError> {
     Ok(SemanticVmsa64Stage2LeafControls {
         shareability: decode_shareability(raw.shareability)?,
@@ -481,7 +362,7 @@ fn decode_vmsa64_stage2_controls(
             crate::attrs::DirtyBitManagement::SoftwareManaged
         },
         contiguous: raw.contiguous,
-        software: SoftwareMetadata::new(raw.software.bits().into()),
+        software: SoftwareMetadata::new(software.bits().into()),
     })
 }
 

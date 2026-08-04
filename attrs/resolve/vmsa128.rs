@@ -1,20 +1,21 @@
 use crate::address::Level;
 use crate::attrs::{
-    AttrError, D128AliasConfig, D128Stage1AliasKind, FourBit, PasConfig, PermissionIndices,
-    PrivilegeModel, RawShareability, RawVmsa128Stage1LeafAttrs, RawVmsa128Stage1TableAttrs,
-    RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs, RealmOrNonSecurePa,
-    ResolvedStage1LeafAttrs, ResolvedStage2LeafAttrs, SecureSelectablePa, SemanticStage1LeafAttrs,
-    SemanticStage2LeafAttrs, SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs,
+    AttrError, D128AliasConfig, D128Stage1AliasKind, FourBit, PermissionIndices, PrivilegeModel,
+    RawShareability, RawVmsa128Stage1LeafAttrs, RawVmsa128Stage1TableAttrs,
+    RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs, ResolvedStage1LeafAttrs,
+    ResolvedStage2LeafAttrs, SemanticStage1LeafAttrs, SemanticStage2LeafAttrs,
+    SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs,
     SemanticVmsa128Stage2LeafControls, SemanticVmsa128Stage2TableAttrs, SoftwareMetadata,
-    Stage1EffectivePermissions, Stage1NotDirty, Stage2Dirty, Stage2Permission, TenBit,
+    Stage1EffectivePermissions, Stage1NotDirty, Stage2Dirty, Stage2PasContext, Stage2Permission,
+    TenBit,
 };
+use crate::descriptor::Vmsa128;
 
 use super::{
     RawStage1LeafPas, Stage1MemoryConfig, Stage1MemoryResolver, Stage1PasResolver,
-    Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PermissionConfig,
-    Stage2PermissionResolver, Vmsa128Stage1Memory, decode_realm_stage2_pas, decode_shareability,
-    decode_stage2_memory, resolve_configured_secure_stage2_pas, resolve_fixed_nonsecure_stage2_pas,
-    resolve_realm_stage2_pas, resolve_stage2_memory,
+    Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PasResolver,
+    Stage2PermissionConfig, Stage2PermissionResolver, Vmsa128Stage1Memory, decode_shareability,
+    decode_stage2_memory, resolve_stage2_memory,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -193,66 +194,29 @@ struct ResolvedVmsa128Stage2LeafControls {
 type ResolvedVmsa128Stage2LeafAttrs =
     ResolvedStage2LeafAttrs<FourBit, PermissionIndices, bool, ResolvedVmsa128Stage2LeafControls>;
 
-fn resolve_vmsa128_stage2_leaf_fixed_resolved<C>(
-    config: &C,
-    level: Level,
-    attrs: SemanticStage2LeafAttrs<Stage2Permission, (), SemanticVmsa128Stage2LeafControls>,
-) -> Result<ResolvedVmsa128Stage2LeafAttrs, AttrError>
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig,
-{
-    resolve_vmsa128_stage2_leaf_inner(
-        config,
-        level,
-        attrs.memory,
-        attrs.permissions,
-        resolve_fixed_nonsecure_stage2_pas(attrs.output_address_space),
-        attrs.controls,
-    )
-}
-
-fn resolve_vmsa128_stage2_leaf_realm_resolved<C>(
+fn resolve_vmsa128_stage2_leaf_resolved<A, C>(
     config: &C,
     level: Level,
     attrs: SemanticStage2LeafAttrs<
         Stage2Permission,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa128Stage2LeafControls,
     >,
 ) -> Result<ResolvedVmsa128Stage2LeafAttrs, AttrError>
 where
+    A: Stage2PasContext + Stage2PasResolver<Vmsa128, C, Software = TenBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
+    let mut software = software_ten(attrs.controls.software)?;
+    let descriptor_ns = A::resolve(config, attrs.output_address_space, &mut software)?;
     resolve_vmsa128_stage2_leaf_inner(
         config,
         level,
         attrs.memory,
         attrs.permissions,
-        resolve_realm_stage2_pas(attrs.output_address_space),
+        descriptor_ns,
         attrs.controls,
-    )
-}
-
-fn resolve_vmsa128_stage2_leaf_secure_resolved<C>(
-    config: &C,
-    level: Level,
-    attrs: SemanticStage2LeafAttrs<
-        Stage2Permission,
-        SecureSelectablePa,
-        SemanticVmsa128Stage2LeafControls,
-    >,
-) -> Result<ResolvedVmsa128Stage2LeafAttrs, AttrError>
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    let ns = resolve_configured_secure_stage2_pas(config, attrs.output_address_space)?;
-    resolve_vmsa128_stage2_leaf_inner(
-        config,
-        level,
-        attrs.memory,
-        attrs.permissions,
-        ns,
-        attrs.controls,
+        software,
     )
 }
 
@@ -263,6 +227,7 @@ fn resolve_vmsa128_stage2_leaf_inner<C>(
     permissions: Stage2Permission,
     descriptor_ns: bool,
     controls: SemanticVmsa128Stage2LeafControls,
+    software: TenBit,
 ) -> Result<ResolvedVmsa128Stage2LeafAttrs, AttrError>
 where
     C: Stage2MemoryConfig + Stage2PermissionConfig,
@@ -280,7 +245,7 @@ where
             force_no_execute: controls.force_no_execute,
             contiguous: controls.contiguous,
             assured_only: controls.assured_only,
-            software: software_ten(controls.software)?,
+            software,
         },
     })
 }
@@ -303,123 +268,50 @@ const fn raw_vmsa128_stage2_leaf(
     }
 }
 
-pub(super) fn resolve_vmsa128_stage2_leaf_fixed<C>(
-    config: &C,
-    level: Level,
-    attrs: SemanticStage2LeafAttrs<Stage2Permission, (), SemanticVmsa128Stage2LeafControls>,
-) -> Result<RawVmsa128Stage2LeafAttrs, AttrError>
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig,
-{
-    resolve_vmsa128_stage2_leaf_fixed_resolved(config, level, attrs).map(raw_vmsa128_stage2_leaf)
-}
-
-pub(super) fn resolve_vmsa128_stage2_leaf_realm<C>(
+pub(super) fn resolve_vmsa128_stage2_leaf<A, C>(
     config: &C,
     level: Level,
     attrs: SemanticStage2LeafAttrs<
         Stage2Permission,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa128Stage2LeafControls,
     >,
 ) -> Result<RawVmsa128Stage2LeafAttrs, AttrError>
 where
+    A: Stage2PasContext + Stage2PasResolver<Vmsa128, C, Software = TenBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
-    resolve_vmsa128_stage2_leaf_realm_resolved(config, level, attrs).map(raw_vmsa128_stage2_leaf)
+    resolve_vmsa128_stage2_leaf_resolved::<A, C>(config, level, attrs).map(raw_vmsa128_stage2_leaf)
 }
 
-pub(super) fn resolve_vmsa128_stage2_leaf_secure<C>(
-    config: &C,
-    level: Level,
-    attrs: SemanticStage2LeafAttrs<
-        Stage2Permission,
-        SecureSelectablePa,
-        SemanticVmsa128Stage2LeafControls,
-    >,
-) -> Result<RawVmsa128Stage2LeafAttrs, AttrError>
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    resolve_vmsa128_stage2_leaf_secure_resolved(config, level, attrs).map(raw_vmsa128_stage2_leaf)
-}
-
-pub(super) fn decode_vmsa128_stage2_leaf_realm<C>(
+pub(super) fn decode_vmsa128_stage2_leaf<A, C>(
     config: &C,
     raw: RawVmsa128Stage2LeafAttrs,
 ) -> Result<
     SemanticStage2LeafAttrs<
         Stage2Permission,
-        RealmOrNonSecurePa,
+        A::OutputAddressSpaceAttr,
         SemanticVmsa128Stage2LeafControls,
     >,
     AttrError,
 >
 where
+    A: Stage2PasContext + Stage2PasResolver<Vmsa128, C, Software = TenBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
+    let mut software = raw.software;
+    let output_address_space = A::decode(config, raw.ns, &mut software)?;
     Ok(SemanticStage2LeafAttrs {
         memory: decode_stage2_memory(config, raw.mem_attr)?,
         permissions: Stage2PermissionResolver::new(config).decode(raw.permissions)?,
-        output_address_space: decode_realm_stage2_pas(raw.ns),
-        controls: SemanticVmsa128Stage2LeafControls {
-            bbm_nt: raw.bbm_nt,
-            dirty_state: raw.dirty.into(),
-            shareability: decode_shareability(raw.shareability)?,
-            access_flag: raw.access_flag,
-            force_no_execute: raw.force_no_execute,
-            contiguous: raw.contiguous,
-            assured_only: raw.assured_only,
-            software: SoftwareMetadata::new(raw.software.bits()),
-        },
-    })
-}
-
-pub(super) fn decode_vmsa128_stage2_leaf_fixed<C>(
-    config: &C,
-    raw: RawVmsa128Stage2LeafAttrs,
-) -> Result<
-    SemanticStage2LeafAttrs<Stage2Permission, (), SemanticVmsa128Stage2LeafControls>,
-    AttrError,
->
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig,
-{
-    if raw.ns {
-        return Err(AttrError::InvalidOutputAddressSpace);
-    }
-    Ok(SemanticStage2LeafAttrs {
-        memory: decode_stage2_memory(config, raw.mem_attr)?,
-        permissions: Stage2PermissionResolver::new(config).decode(raw.permissions)?,
-        output_address_space: (),
-        controls: decode_vmsa128_stage2_controls(raw)?,
-    })
-}
-
-pub(super) fn decode_vmsa128_stage2_leaf_secure<C>(
-    config: &C,
-    raw: RawVmsa128Stage2LeafAttrs,
-) -> Result<
-    SemanticStage2LeafAttrs<
-        Stage2Permission,
-        SecureSelectablePa,
-        SemanticVmsa128Stage2LeafControls,
-    >,
-    AttrError,
->
-where
-    C: Stage2MemoryConfig + Stage2PermissionConfig + PasConfig<Pas = SecureSelectablePa>,
-{
-    Ok(SemanticStage2LeafAttrs {
-        memory: decode_stage2_memory(config, raw.mem_attr)?,
-        permissions: Stage2PermissionResolver::new(config).decode(raw.permissions)?,
-        output_address_space: super::decode_configured_secure_stage2_pas(config, raw.ns)?,
-        controls: decode_vmsa128_stage2_controls(raw)?,
+        output_address_space,
+        controls: decode_vmsa128_stage2_controls(raw, software)?,
     })
 }
 
 fn decode_vmsa128_stage2_controls(
     raw: RawVmsa128Stage2LeafAttrs,
+    software: TenBit,
 ) -> Result<SemanticVmsa128Stage2LeafControls, AttrError> {
     Ok(SemanticVmsa128Stage2LeafControls {
         bbm_nt: raw.bbm_nt,
@@ -429,7 +321,7 @@ fn decode_vmsa128_stage2_controls(
         force_no_execute: raw.force_no_execute,
         contiguous: raw.contiguous,
         assured_only: raw.assured_only,
-        software: SoftwareMetadata::new(raw.software.bits()),
+        software: SoftwareMetadata::new(software.bits()),
     })
 }
 
