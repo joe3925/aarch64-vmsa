@@ -11,7 +11,7 @@ pub use resolve::{
     AttributeCodec, D128AliasConfig, LiveVmsaConfig, PasConfig, ShareabilityConfig,
     Stage1MemoryConfig, Stage1PermissionConfig, Stage1PermissionRegisterPair,
     Stage1PermissionRegisters, Stage2MemoryConfig, Stage2MemoryMode, Stage2PermissionConfig,
-    Stage2PermissionRegisters, VmsaAttributeCodec,
+    Stage2PermissionRegisters,
 };
 pub use semantic::*;
 

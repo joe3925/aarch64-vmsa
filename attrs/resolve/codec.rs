@@ -19,12 +19,12 @@ use crate::regime::*;
 
 use super::*;
 
-pub trait AttributeCodec<F, R, G, Cfg>
+pub trait AttributeCodec<R, G, Cfg>: DescriptorFormat
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    Self: HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    LayoutOf<F, R, G>: DescriptorLayout<StageOf<R>, G, Format = F, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
+    LayoutOf<Self, R, G>: DescriptorLayout<StageOf<R>, G, Format = Self, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
 {
     type SemanticLeaf: Copy;
     type SemanticTable: Copy;
@@ -55,9 +55,6 @@ where
         raw: Self::RawTable,
     ) -> Result<Self::SemanticTable, AttrError>;
 }
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct VmsaAttributeCodec;
 
 trait Lpa2GranulePolicy<C>: TranslationGranule {
     fn encode_shareability(config: &C, requested: Shareability) -> Result<(), AttrError>;
@@ -94,7 +91,7 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
 
 macro_rules! impl_stage1_codecs {
     ($regime:ty) => {
-        impl<G, Cfg> AttributeCodec<Vmsa64, $regime, G, Cfg> for VmsaAttributeCodec
+        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa64
         where
             G: TranslationGranule,
             Cfg: Stage1MemoryConfig,
@@ -128,7 +125,7 @@ macro_rules! impl_stage1_codecs {
             }
         }
 
-        impl<G, Cfg> AttributeCodec<Vmsa64Lpa2, $regime, G, Cfg> for VmsaAttributeCodec
+        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa64Lpa2
         where
             G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
             Cfg: Stage1MemoryConfig + ShareabilityConfig,
@@ -165,7 +162,7 @@ macro_rules! impl_stage1_codecs {
             }
         }
 
-        impl<G, Cfg> AttributeCodec<Vmsa128, $regime, G, Cfg> for VmsaAttributeCodec
+        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa128
         where
             G: TranslationGranule,
             Cfg: Stage1MemoryConfig + Stage1PermissionConfig + D128AliasConfig,
@@ -215,7 +212,7 @@ impl_stage1_codecs!(RootEl3Stage1);
 
 macro_rules! impl_stage2_codecs {
     ($regime:ident) => {
-        impl<P, G, Cfg> AttributeCodec<Vmsa64, $regime<P>, G, Cfg> for VmsaAttributeCodec
+        impl<P, G, Cfg> AttributeCodec<$regime<P>, G, Cfg> for Vmsa64
         where
             P: Stage2PermissionModel,
             G: TranslationGranule,
@@ -235,7 +232,7 @@ macro_rules! impl_stage2_codecs {
             fn decode_table(_: &Cfg, _: Level, raw: Self::RawTable) -> Result<Self::SemanticTable, AttrError> { decode_vmsa64_stage2_table(raw) }
         }
 
-        impl<P, G, Cfg> AttributeCodec<Vmsa64Lpa2, $regime<P>, G, Cfg> for VmsaAttributeCodec
+        impl<P, G, Cfg> AttributeCodec<$regime<P>, G, Cfg> for Vmsa64Lpa2
         where
             P: Stage2PermissionModel,
             G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
@@ -260,7 +257,7 @@ macro_rules! impl_stage2_codecs {
             fn decode_table(_: &Cfg, _: Level, raw: Self::RawTable) -> Result<Self::SemanticTable, AttrError> { decode_vmsa64_stage2_table(raw) }
         }
 
-        impl<P, G, Cfg> AttributeCodec<Vmsa128, $regime<P>, G, Cfg> for VmsaAttributeCodec
+        impl<P, G, Cfg> AttributeCodec<$regime<P>, G, Cfg> for Vmsa128
         where
             P: Stage2PermissionModel,
             G: TranslationGranule,
