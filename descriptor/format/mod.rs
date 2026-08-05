@@ -65,40 +65,40 @@ pub trait DescriptorFormat: Copy + Sized + 'static {
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw);
 }
 
-pub trait DescriptorLayout<F, S, G>: Copy + 'static
+pub trait DescriptorLayout<S, G>: Copy + 'static
 where
-    F: DescriptorFormat,
     S: TranslationStage,
     G: TranslationGranule,
 {
+    type Format: DescriptorFormat;
     type LeafFields: Copy;
     type TableFields: Copy;
 
-    const REQUIRED_FEATURES: FeatureRequirements = F::REQUIRED_FEATURES;
+    const REQUIRED_FEATURES: FeatureRequirements = Self::Format::REQUIRED_FEATURES;
     const ADDRESS_FIELD_MASK: u128;
 
-    fn kind(raw: F::Raw, level: Level) -> DescriptorKind;
-    fn decode_leaf_fields(raw: F::Raw, level: Level) -> Self::LeafFields;
-    fn decode_table_fields(raw: F::Raw, level: Level) -> Self::TableFields;
+    fn kind(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> DescriptorKind;
+    fn decode_leaf_fields(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Self::LeafFields;
+    fn decode_table_fields(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Self::TableFields;
     fn leaf_descriptor(
         output_pa: PhysAddr,
         level: Level,
         fields: Self::LeafFields,
-    ) -> Result<F::Raw, DescriptorError>;
+    ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
     fn table_descriptor(
         table_pa: PhysAddr,
-        transition: TableTransition<F, G>,
+        transition: TableTransition<Self::Format, G>,
         fields: Self::TableFields,
-    ) -> Result<F::Raw, DescriptorError>;
-    fn output_address(raw: F::Raw, level: Level) -> PhysAddr;
+    ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
+    fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
 
-    fn table_address(raw: F::Raw, level: Level) -> PhysAddr {
+    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr {
         Self::output_address(raw, level)
     }
 
-    fn next_table(raw: F::Raw, level: Level) -> Option<NextTableDescriptor> {
+    fn next_table(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Option<NextTableDescriptor> {
         level
-            .is_before(F::FINAL_LEVEL)
+            .is_before(Self::Format::FINAL_LEVEL)
             .then(|| NextTableDescriptor {
                 address: Self::table_address(raw, level),
                 level: level.next(),
@@ -106,7 +106,7 @@ where
             })
     }
 
-    fn supports_table_transition(transition: TableTransition<F, G>) -> bool {
+    fn supports_table_transition(transition: TableTransition<Self::Format, G>) -> bool {
         transition.level_step() == 1 && transition.child().stride_count().raw() == 1
     }
 }
@@ -116,7 +116,7 @@ where
     S: TranslationStage,
     G: TranslationGranule,
 {
-    type Layout: DescriptorLayout<Self, S, G>;
+    type Layout: DescriptorLayout<S, G, Format = Self>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

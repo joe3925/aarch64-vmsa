@@ -25,7 +25,8 @@ impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa128 {
     type Layout = Vmsa128Layout<Stage2, G>;
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage1, G> for Vmsa128Layout<Stage1, G> {
+impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1, G> {
+    type Format = Vmsa128;
     type LeafFields = RawVmsa128Stage1LeafAttrs;
     type TableFields = RawVmsa128Stage1TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
@@ -129,7 +130,8 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage1, G> for Vmsa128Layo
     }
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Vmsa128, Stage2, G> for Vmsa128Layout<Stage2, G> {
+impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2, G> {
+    type Format = Vmsa128;
     type LeafFields = RawVmsa128Stage2LeafAttrs;
     type TableFields = RawVmsa128Stage2TableAttrs;
     const REQUIRED_FEATURES: crate::arch::FeatureRequirements =

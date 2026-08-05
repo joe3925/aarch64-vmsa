@@ -28,7 +28,8 @@ impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64 {
     type Layout = Vmsa64Layout<Stage2, G>;
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout<Stage1, G> {
+impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Layout<Stage1, G> {
+    type Format = Vmsa64;
     type LeafFields = RawVmsa64Stage1LeafAttrs;
     type TableFields = RawVmsa64Stage1TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = bits::ADDRESS_FIELD_MASK;
@@ -108,7 +109,8 @@ impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage1, G> for Vmsa64Layout
     }
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Vmsa64, Stage2, G> for Vmsa64Layout<Stage2, G> {
+impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Layout<Stage2, G> {
+    type Format = Vmsa64;
     type LeafFields = RawVmsa64Stage2LeafAttrs;
     type TableFields = RawVmsa64Stage2TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = bits::ADDRESS_FIELD_MASK;

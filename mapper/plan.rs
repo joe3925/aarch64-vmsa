@@ -196,7 +196,7 @@ where
         let layout = child_shape.alloc_layout()?;
 
         if layout.bytes() <= max_table_bytes
-            && <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::supports_table_transition(
+            && <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::supports_table_transition(
                 transition,
             )
         {

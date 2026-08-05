@@ -212,7 +212,7 @@ where
             self.root.output_addr_bits(),
         )?;
 
-        let leaf_raw = <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::leaf_descriptor(
+        let leaf_raw = <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::leaf_descriptor(
             output,
             level,
             leaf_fields,
@@ -280,7 +280,7 @@ where
                     )?;
 
                     let table_raw =
-                        <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::table_descriptor(
+                        <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::table_descriptor(
                             frame.phys(),
                             transition,
                             plan.into_fields(),
@@ -537,7 +537,7 @@ where
                 .read(index)
                 .ok_or(TableError::EntryIndexOutOfRange { index, entries })?;
 
-            if <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::kind(raw, level)
+            if <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::kind(raw, level)
                 != DescriptorKind::Invalid
             {
                 return Ok(true);

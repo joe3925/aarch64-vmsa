@@ -58,9 +58,9 @@ pub trait Stage2Regime: TranslationRegime {
 pub type StageOf<R> = <<R as TranslationRegime>::WalkProfile as TranslationWalkProfile>::Stage;
 pub type LayoutOf<F, R, G> = <F as HasLayout<StageOf<R>, G>>::Layout;
 pub type LeafFieldsOf<F, R, G> =
-    <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::LeafFields;
+    <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::LeafFields;
 pub type TableFieldsOf<F, R, G> =
-    <LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::TableFields;
+    <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::TableFields;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegimeValidationError {
@@ -84,7 +84,7 @@ where
     G: TranslationGranule,
 {
     let required = R::REQUIRED_FEATURES
-        .union(<LayoutOf<F, R, G> as DescriptorLayout<F, StageOf<R>, G>>::REQUIRED_FEATURES);
+        .union(<LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::REQUIRED_FEATURES);
     if features.verify(required) {
         Ok(())
     } else {

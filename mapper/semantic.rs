@@ -37,7 +37,7 @@ where
             RawLeaf = LeafFieldsOf<F, R, G>,
             RawTable = TableFieldsOf<F, R, G>,
         >,
-    LayoutOf<F, R, G>: DescriptorLayout<F, StageOf<R>, G>,
+    LayoutOf<F, R, G>: DescriptorLayout<StageOf<R>, G, Format = F>,
     LeafFieldsOf<F, R, G>: Copy,
 {
     let leaf =
@@ -66,7 +66,7 @@ where
             RawLeaf = LeafFieldsOf<F, R, G>,
             RawTable = TableFieldsOf<F, R, G>,
         >,
-    LayoutOf<F, R, G>: DescriptorLayout<F, StageOf<R>, G>,
+    LayoutOf<F, R, G>: DescriptorLayout<StageOf<R>, G, Format = F>,
 {
     Codec::decode_leaf(config, level, raw)
 }
@@ -88,7 +88,7 @@ where
             RawLeaf = LeafFieldsOf<F, R, G>,
             RawTable = TableFieldsOf<F, R, G>,
         >,
-    LayoutOf<F, R, G>: DescriptorLayout<F, StageOf<R>, G>,
+    LayoutOf<F, R, G>: DescriptorLayout<StageOf<R>, G, Format = F>,
 {
     Codec::decode_table(config, level, raw)
 }

@@ -72,13 +72,11 @@ impl WalkInputAddr {
 pub type WalkLayoutOf<F, P, G> = <F as HasLayout<<P as TranslationWalkProfile>::Stage, G>>::Layout;
 
 pub type WalkLeafFieldsOf<F, P, G> = <WalkLayoutOf<F, P, G> as DescriptorLayout<
-    F,
     <P as TranslationWalkProfile>::Stage,
     G,
 >>::LeafFields;
 
 pub type WalkTableFieldsOf<F, P, G> = <WalkLayoutOf<F, P, G> as DescriptorLayout<
-    F,
     <P as TranslationWalkProfile>::Stage,
     G,
 >>::TableFields;
@@ -467,7 +465,7 @@ where
                 entries: table.entries(),
             })?;
 
-        match <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::kind(raw, cursor.level())
+        match <WalkLayoutOf<F, P, G> as DescriptorLayout<P::Stage, G>>::kind(raw, cursor.level())
         {
             DescriptorKind::Invalid => Ok(WalkStep::Invalid(WalkInvalid {
                 cursor,
@@ -525,7 +523,7 @@ where
         let level = cursor.level();
 
         let output_base =
-            <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::output_address(raw, level);
+            <WalkLayoutOf<F, P, G> as DescriptorLayout<P::Stage, G>>::output_address(raw, level);
         let offset = TableGeometry::<F, G>::offset_at_level_raw(cursor.input().raw(), level)
             .ok_or(WalkCursorError::InvalidLevel { level })?;
         let output = PhysAddr(output_base.0.checked_add(offset).ok_or(
@@ -535,7 +533,7 @@ where
             },
         )?);
         let fields =
-            <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::decode_leaf_fields(
+            <WalkLayoutOf<F, P, G> as DescriptorLayout<P::Stage, G>>::decode_leaf_fields(
                 raw, level,
             );
 
@@ -566,11 +564,11 @@ where
         }
 
         let fields =
-            <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::decode_table_fields(
+            <WalkLayoutOf<F, P, G> as DescriptorLayout<P::Stage, G>>::decode_table_fields(
                 raw, level,
             );
         let next_descriptor =
-            <WalkLayoutOf<F, P, G> as DescriptorLayout<F, P::Stage, G>>::next_table(raw, level)
+            <WalkLayoutOf<F, P, G> as DescriptorLayout<P::Stage, G>>::next_table(raw, level)
                 .ok_or(WalkError::TableDescriptorAtFinalLevel { level })?;
         let next_addr = TablePhysAddr::<G>::new(next_descriptor.address)?;
         let next = NextTable::<F, G>::new(

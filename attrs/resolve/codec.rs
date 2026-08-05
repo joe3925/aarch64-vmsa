@@ -24,7 +24,7 @@ where
     F: DescriptorFormat + HasLayout<StageOf<R>, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    LayoutOf<F, R, G>: DescriptorLayout<F, StageOf<R>, G, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
+    LayoutOf<F, R, G>: DescriptorLayout<StageOf<R>, G, Format = F, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
 {
     type SemanticLeaf: Copy;
     type SemanticTable: Copy;
