@@ -157,7 +157,7 @@ fn decode_mair_attribute(entry: u8) -> Option<MemoryAttributes> {
 fn decode_mair_cacheability(bits: u8) -> Option<Cacheability> {
     match bits & 0xf {
         0b0100 => Some(Cacheability::NonCacheable),
-        value if value & 0b11 != 0 => {
+        value if value & 0b11 != 0 || value & 0b1100 >= 0b1000 => {
             let (policy, transience) = match value >> 2 {
                 0 => (CachePolicy::WriteThrough, MemoryTransience::Transient),
                 1 => (CachePolicy::WriteBack, MemoryTransience::Transient),
