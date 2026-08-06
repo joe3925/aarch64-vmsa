@@ -16,6 +16,7 @@ use crate::descriptor::{
     DescriptorFormat, DescriptorLayout, HasLayout, Vmsa64, Vmsa64Lpa2, Vmsa128,
 };
 use crate::regime::*;
+use crate::translation::Stage1;
 
 use super::*;
 
@@ -90,56 +91,58 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
 }
 
 macro_rules! impl_stage1_codecs {
-    ($regime:ty) => {
-        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa64
+    () => {
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg> for Vmsa64
         where
+            R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule,
             Cfg: Stage1MemoryConfig,
-            <$regime as Stage1Regime>::PrivilegeModel: Stage1DirectPermissionModel,
-            <$regime as TranslationRegime>::PasModel: Stage1PasResolver,
+            R::PrivilegeModel: Stage1DirectPermissionModel,
+            R::PasModel: Stage1PasResolver,
         {
             type SemanticLeaf = SemanticStage1LeafAttrs<
-                <<$regime as Stage1Regime>::PrivilegeModel as PrivilegeModel>::LeafPermissions,
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::LeafAttr,
+                <R::PrivilegeModel as PrivilegeModel>::LeafPermissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
                 SemanticVmsa64Stage1LeafControls,
             >;
             type SemanticTable = SemanticStage1TableAttrs<
-                <<$regime as Stage1Regime>::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::TableAttr,
+                <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+                <R::PasModel as Stage1PasModel>::TableAttr,
                 SemanticVmsa64Stage1TableControls,
             >;
             type RawLeaf = RawVmsa64Stage1LeafAttrs;
             type RawTable = RawVmsa64Stage1TableAttrs;
 
             fn resolve_leaf(config: &Cfg, _: Level, attrs: Self::SemanticLeaf) -> Result<Self::RawLeaf, AttrError> {
-                resolve_vmsa64_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, attrs)
+                resolve_vmsa64_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
             }
             fn resolve_table(_: &Cfg, _: Level, attrs: Self::SemanticTable) -> Result<Self::RawTable, AttrError> {
-                resolve_vmsa64_stage1_table::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel>(attrs)
+                resolve_vmsa64_stage1_table::<R::PrivilegeModel, R::PasModel>(attrs)
             }
             fn decode_leaf(config: &Cfg, _: Level, raw: Self::RawLeaf) -> Result<Self::SemanticLeaf, AttrError> {
-                decode_vmsa64_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, raw)
+                decode_vmsa64_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, raw)
             }
             fn decode_table(_: &Cfg, _: Level, raw: Self::RawTable) -> Result<Self::SemanticTable, AttrError> {
-                decode_vmsa64_stage1_table::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel>(raw)
+                decode_vmsa64_stage1_table::<R::PrivilegeModel, R::PasModel>(raw)
             }
         }
 
-        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa64Lpa2
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg> for Vmsa64Lpa2
         where
+            R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
             Cfg: Stage1MemoryConfig + ShareabilityConfig,
-            <$regime as Stage1Regime>::PrivilegeModel: Stage1DirectPermissionModel,
-            <$regime as TranslationRegime>::PasModel: Stage1PasResolver,
+            R::PrivilegeModel: Stage1DirectPermissionModel,
+            R::PasModel: Stage1PasResolver,
         {
             type SemanticLeaf = SemanticStage1LeafAttrs<
-                <<$regime as Stage1Regime>::PrivilegeModel as PrivilegeModel>::LeafPermissions,
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::LeafAttr,
+                <R::PrivilegeModel as PrivilegeModel>::LeafPermissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
                 SemanticVmsa64Stage1LeafControls,
             >;
             type SemanticTable = SemanticStage1TableAttrs<
-                <<$regime as Stage1Regime>::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::TableAttr,
+                <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+                <R::PasModel as Stage1PasModel>::TableAttr,
                 SemanticVmsa64Stage1TableControls,
             >;
             type RawLeaf = RawVmsa64Stage1LeafAttrs;
@@ -147,68 +150,60 @@ macro_rules! impl_stage1_codecs {
 
             fn resolve_leaf(config: &Cfg, _: Level, attrs: Self::SemanticLeaf) -> Result<Self::RawLeaf, AttrError> {
                 G::encode_shareability(config, attrs.controls.shareability)?;
-                resolve_vmsa64_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, attrs)
+                resolve_vmsa64_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
             }
             fn resolve_table(_: &Cfg, _: Level, attrs: Self::SemanticTable) -> Result<Self::RawTable, AttrError> {
-                resolve_vmsa64_stage1_table::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel>(attrs)
+                resolve_vmsa64_stage1_table::<R::PrivilegeModel, R::PasModel>(attrs)
             }
             fn decode_leaf(config: &Cfg, _: Level, raw: Self::RawLeaf) -> Result<Self::SemanticLeaf, AttrError> {
-                let mut attrs = decode_vmsa64_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, raw)?;
+                let mut attrs = decode_vmsa64_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, raw)?;
                 G::decode_shareability(config, &mut attrs.controls.shareability)?;
                 Ok(attrs)
             }
             fn decode_table(_: &Cfg, _: Level, raw: Self::RawTable) -> Result<Self::SemanticTable, AttrError> {
-                decode_vmsa64_stage1_table::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel>(raw)
+                decode_vmsa64_stage1_table::<R::PrivilegeModel, R::PasModel>(raw)
             }
         }
 
-        impl<G, Cfg> AttributeCodec<$regime, G, Cfg> for Vmsa128
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg> for Vmsa128
         where
+            R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule,
             Cfg: Stage1MemoryConfig + Stage1PermissionConfig + D128AliasConfig,
-            <$regime as TranslationRegime>::PasModel: Stage1PasResolver,
+            R::PasModel: Stage1PasResolver,
         {
             type SemanticLeaf = SemanticStage1LeafAttrs<
                 Stage1EffectivePermissions,
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::LeafAttr,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
                 SemanticVmsa128Stage1LeafControls,
             >;
             type SemanticTable = SemanticVmsa128Stage1TableAttrs<
-                <<$regime as TranslationRegime>::PasModel as Stage1PasModel>::TableAttr,
+                <R::PasModel as Stage1PasModel>::TableAttr,
             >;
             type RawLeaf = RawVmsa128Stage1LeafAttrs;
             type RawTable = RawVmsa128Stage1TableAttrs;
 
             fn resolve_leaf(config: &Cfg, level: Level, attrs: Self::SemanticLeaf) -> Result<Self::RawLeaf, AttrError> {
-                resolve_vmsa128_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, level, attrs)
+                resolve_vmsa128_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, level, attrs)
             }
             fn resolve_table(_: &Cfg, _: Level, attrs: Self::SemanticTable) -> Result<Self::RawTable, AttrError> {
-                resolve_vmsa128_stage1_table::<<$regime as TranslationRegime>::PasModel>(attrs)
+                resolve_vmsa128_stage1_table::<R::PasModel>(attrs)
             }
             fn decode_leaf(config: &Cfg, level: Level, raw: Self::RawLeaf) -> Result<Self::SemanticLeaf, AttrError> {
-                let attrs = decode_vmsa128_stage1_leaf::<<$regime as Stage1Regime>::PrivilegeModel, <$regime as TranslationRegime>::PasModel, Cfg>(config, raw)?;
+                let attrs = decode_vmsa128_stage1_leaf::<R::PrivilegeModel, R::PasModel, Cfg>(config, raw)?;
                 if attrs.controls.bbm_nt && level == Level::L3 {
                     return Err(AttrError::InvalidD128Configuration);
                 }
                 Ok(attrs)
             }
             fn decode_table(_: &Cfg, _: Level, raw: Self::RawTable) -> Result<Self::SemanticTable, AttrError> {
-                decode_vmsa128_stage1_table::<<$regime as TranslationRegime>::PasModel>(raw)
+                decode_vmsa128_stage1_table::<R::PasModel>(raw)
             }
         }
     };
 }
 
-impl_stage1_codecs!(NonSecureEl1Stage1);
-impl_stage1_codecs!(SecureEl1Stage1);
-impl_stage1_codecs!(RealmEl1Stage1);
-impl_stage1_codecs!(NonSecureEl2Stage1);
-impl_stage1_codecs!(SecureEl2Stage1);
-impl_stage1_codecs!(RealmEl2Stage1);
-impl_stage1_codecs!(NonSecureEl2HostStage1);
-impl_stage1_codecs!(SecureEl2HostStage1);
-impl_stage1_codecs!(RealmEl2HostStage1);
-impl_stage1_codecs!(RootEl3Stage1);
+impl_stage1_codecs!();
 
 macro_rules! impl_stage2_codecs {
     ($regime:ident) => {
