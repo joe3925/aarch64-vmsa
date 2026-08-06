@@ -32,7 +32,15 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
-        kind(G::KIND, raw, level)
+        kind(
+            G::KIND,
+            raw,
+            level,
+            b::stage1_leaf::RES0_MASK,
+            b::stage1_leaf::RES1_MASK,
+            b::stage1_table::RES0_MASK,
+            b::stage1_table::RES1_MASK,
+        )
     }
     fn decode_leaf_fields(raw: u128, _level: Level) -> Self::LeafFields {
         RawVmsa128Stage1LeafAttrs {
@@ -141,7 +149,15 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
-        kind(G::KIND, raw, level)
+        kind(
+            G::KIND,
+            raw,
+            level,
+            b::stage2_leaf::RES0_MASK,
+            b::stage2_leaf::RES1_MASK,
+            b::stage2_table::RES0_MASK,
+            b::stage2_table::RES1_MASK,
+        )
     }
     fn decode_leaf_fields(raw: u128, _level: Level) -> Self::LeafFields {
         RawVmsa128Stage2LeafAttrs {
@@ -312,7 +328,15 @@ fn transition_skl<G: TranslationGranule>(
     }
 }
 
-fn kind(granule: GranuleKind, raw: u128, level: Level) -> DescriptorKind {
+fn kind(
+    granule: GranuleKind,
+    raw: u128,
+    level: Level,
+    leaf_res0: u128,
+    leaf_res1: u128,
+    table_res0: u128,
+    table_res1: u128,
+) -> DescriptorKind {
     if b::D128_VALID::extract(raw) == 0 {
         return DescriptorKind::Invalid;
     }
@@ -320,11 +344,25 @@ fn kind(granule: GranuleKind, raw: u128, level: Level) -> DescriptorKind {
     if !skl_supported(granule, skl) {
         return DescriptorKind::Invalid;
     }
-    match level.as_i8() + skl as i8 {
+    let descriptor_kind = match level.as_i8() + skl as i8 {
         sum if sum < Level::L3.as_i8() => DescriptorKind::Table,
         sum if sum == Level::L3.as_i8() && level == Level::L3 => DescriptorKind::Page,
         sum if sum == Level::L3.as_i8() => DescriptorKind::Block,
         _ => DescriptorKind::Invalid,
+    };
+
+    let reserved_bits_valid = match descriptor_kind {
+        DescriptorKind::Block | DescriptorKind::Page => {
+            raw & leaf_res0 == 0 && raw & leaf_res1 == leaf_res1
+        }
+        DescriptorKind::Table => raw & table_res0 == 0 && raw & table_res1 == table_res1,
+        DescriptorKind::Invalid => false,
+    };
+
+    if reserved_bits_valid {
+        descriptor_kind
+    } else {
+        DescriptorKind::Invalid
     }
 }
 
