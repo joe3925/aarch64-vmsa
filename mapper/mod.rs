@@ -472,6 +472,11 @@ where
         let input = leaf.cursor().input();
         let covered_size = mapping_size::<F, G, A::Error, P::Error>(leaf.level())?;
         let covered_input_base = input.raw() & !(covered_size - 1);
+        require_output_range::<A::Error, P::Error>(
+            leaf.output_base(),
+            covered_size,
+            self.root.output_addr_bits(),
+        )?;
 
         Ok(Mapping {
             input,
