@@ -191,8 +191,20 @@ where
     let mut step = max_step;
     while step > 0 {
         let child_level = Level::new(parent.level().as_i8() + step as i8);
-        let child_shape = TableShape::new(child_level, step)?;
-        let transition = TableTransition::new(parent, child_shape)?;
+        let child_shape = match TableShape::new(child_level, step) {
+            Ok(shape) => shape,
+            Err(_) => {
+                step -= 1;
+                continue;
+            }
+        };
+        let transition = match TableTransition::new(parent, child_shape) {
+            Ok(transition) => transition,
+            Err(_) => {
+                step -= 1;
+                continue;
+            }
+        };
         let layout = child_shape.alloc_layout()?;
 
         if layout.bytes() <= max_table_bytes
