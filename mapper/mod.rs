@@ -453,8 +453,8 @@ where
 
     pub(super) fn borrowed_walker(
         &self,
-    ) -> Result<Walker<F, R::WalkProfile, G, &A>, MapperError<A::Error, P::Error>> {
-        Walker::<F, R::WalkProfile, G, _>::new(self.root.addr(), self.root.level(), &self.access)
+    ) -> Result<Walker<F, R::Stage, G, &A>, MapperError<A::Error, P::Error>> {
+        Walker::<F, R::Stage, G, _>::new(self.root.addr(), self.root.level(), &self.access)
             .map_err(Into::into)
     }
 
@@ -467,7 +467,7 @@ where
 
     pub(super) fn decode_mapping(
         &self,
-        leaf: WalkLeaf<F, R::WalkProfile, G>,
+        leaf: WalkLeaf<F, R::Stage, G>,
     ) -> Result<Mapping<F, R, G>, MapperError<A::Error, P::Error>> {
         let input = leaf.cursor().input();
         let covered_size = mapping_size::<F, G, A::Error, P::Error>(leaf.level())?;

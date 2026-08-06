@@ -9,7 +9,7 @@ use crate::attrs::{
     SecureSelectablePas, Stage2PermissionModel, Stage2Permissions,
 };
 use crate::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
-use crate::translation::{Stage1Walk, Stage2Walk, TranslationWalkProfile};
+use crate::translation::{Stage1, Stage2, TranslationStage};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RegimeOwner {
@@ -34,7 +34,7 @@ pub enum IpaSpace {
 }
 
 pub trait TranslationRegime: Copy + 'static {
-    type WalkProfile: TranslationWalkProfile;
+    type Stage: TranslationStage;
     type PasModel: PasModel;
 
     const OWNER: RegimeOwner;
@@ -55,7 +55,7 @@ pub trait Stage2Regime: TranslationRegime {
     const IPA_SPACE: IpaSpace;
 }
 
-pub type StageOf<R> = <<R as TranslationRegime>::WalkProfile as TranslationWalkProfile>::Stage;
+pub type StageOf<R> = <R as TranslationRegime>::Stage;
 pub type LayoutOf<F, R, G> = <F as HasLayout<StageOf<R>, G>>::Layout;
 pub type LeafFieldsOf<F, R, G> =
     <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::LeafFields;
@@ -97,7 +97,7 @@ macro_rules! stage1_regime {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
         pub struct $name;
         impl TranslationRegime for $name {
-            type WalkProfile = Stage1Walk;
+            type Stage = Stage1;
             type PasModel = $pas;
             const OWNER: RegimeOwner = $owner;
             const SPACE: TranslationSpace = $space;
@@ -196,7 +196,7 @@ pub struct RealmEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
 macro_rules! stage2_regime {
     ($name:ident, $context:ty, $space:expr, $ipa:expr) => {
         impl<P: Stage2PermissionModel> TranslationRegime for $name<P> {
-            type WalkProfile = Stage2Walk;
+            type Stage = Stage2;
             type PasModel = $context;
             const OWNER: RegimeOwner = RegimeOwner::El2;
             const SPACE: TranslationSpace = $space;
