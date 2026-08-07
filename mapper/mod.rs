@@ -19,8 +19,6 @@ pub use self::types::{
     MapLeafOutcome, MapRangeOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome,
 };
 
-use core::marker::PhantomData;
-
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout};
 use crate::regime::{LayoutOf, LeafFieldsOf, StageOf, TableFieldsOf, TranslationRegime};
@@ -39,13 +37,13 @@ use self::validate::{
 pub struct Mapper<F, R, G, A, P, M>
 where
     F: DescriptorFormat,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
-    root: RootTable<F, G>,
+    root: RootTable<F, R, G>,
     access: A,
     frames: P,
     mode: M,
-    _marker: PhantomData<R>,
 }
 
 impl<F, R, G, A, P> Mapper<F, R, G, A, P, Offline>
@@ -57,22 +55,21 @@ where
     P: TableFrameProvider<G>,
 {
     pub fn new_offline(
-        root: RootTable<F, G>,
+        root: RootTable<F, R, G>,
         access: A,
         frames: P,
     ) -> Result<Self, MapperError<A::Error, P::Error>> {
-        validate_root::<F, G, A::Error, P::Error>(root)?;
+        validate_root::<F, G, A::Error, P::Error>(root.geometry())?;
 
         Ok(Self {
             root,
             access,
             frames,
             mode: Offline::new(),
-            _marker: PhantomData,
         })
     }
 
-    pub fn into_parts(self) -> (RootTable<F, G>, A, P) {
+    pub fn into_parts(self) -> (RootTable<F, R, G>, A, P) {
         (self.root, self.access, self.frames)
     }
 }
@@ -87,19 +84,18 @@ where
     I: MapperInvalidation<F, G>,
 {
     pub fn new_live(
-        root: RootTable<F, G>,
+        root: RootTable<F, R, G>,
         access: A,
         frames: P,
         invalidation: I,
     ) -> Result<Self, MapperError<A::Error, P::Error>> {
-        validate_root::<F, G, A::Error, P::Error>(root)?;
+        validate_root::<F, G, A::Error, P::Error>(root.geometry())?;
 
         Ok(Self {
             root,
             access,
             frames,
             mode: Live::new(invalidation),
-            _marker: PhantomData,
         })
     }
 
@@ -111,7 +107,7 @@ where
         self.mode.invalidation_mut()
     }
 
-    pub fn into_parts(self) -> (RootTable<F, G>, A, P, I) {
+    pub fn into_parts(self) -> (RootTable<F, R, G>, A, P, I) {
         (
             self.root,
             self.access,
@@ -131,7 +127,7 @@ where
     M: MapperMode<F, G>,
     LeafFieldsOf<F, R, G>: Copy,
 {
-    pub const fn root(&self) -> RootTable<F, G> {
+    pub const fn root(&self) -> RootTable<F, R, G> {
         self.root
     }
 
@@ -453,9 +449,8 @@ where
 
     pub(super) fn borrowed_walker(
         &self,
-    ) -> Result<Walker<F, R::Stage, G, &A>, MapperError<A::Error, P::Error>> {
-        Walker::<F, R::Stage, G, _>::new(self.root.addr(), self.root.level(), &self.access)
-            .map_err(Into::into)
+    ) -> Result<Walker<F, R, G, &A>, MapperError<A::Error, P::Error>> {
+        Walker::new(self.root, &self.access).map_err(Into::into)
     }
 
     fn cursor(

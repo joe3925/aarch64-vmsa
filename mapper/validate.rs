@@ -1,12 +1,12 @@
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
-use crate::table::{RootTable, TableGeometry};
+use crate::table::{RootTableGeometry, TableGeometry};
 use crate::translation::walk::WalkLeafKind;
 
 use super::MapperError;
 
 pub(super) fn validate_root<F, G, AccessErrorKind, FrameErrorKind>(
-    root: RootTable<F, G>,
+    root: RootTableGeometry<F, G>,
 ) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>>
 where
     F: DescriptorFormat,
