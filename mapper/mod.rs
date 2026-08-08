@@ -12,18 +12,14 @@ pub use self::plan::{
     BoundedSklTablePlan, MaxSklTablePlan, StepByOneTablePlan, TablePlan, TablePlanContext,
     TablePlanProvider,
 };
-pub use self::semantic::{
-    SemanticMapperError, decode_semantic_leaf, decode_semantic_table, map_semantic_leaf,
-};
+pub use self::semantic::{SemanticMapperError, decode_semantic_leaf, decode_semantic_table};
 pub use self::types::{
     MapLeafOutcome, MapRangeOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome,
 };
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout};
-use crate::regime::{
-    RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime,
-};
+use crate::regime::{RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{
     NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrame,
     TableFrameProvider, TableTransition,

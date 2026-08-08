@@ -112,6 +112,7 @@ where
 
 pub(super) fn decode_vmsa128_stage1_leaf<P, A, C>(
     config: &C,
+    level: Level,
     raw: RawVmsa128Stage1LeafAttrs,
 ) -> Result<
     SemanticStage1LeafAttrs<
@@ -126,6 +127,7 @@ where
     A: Stage1PasResolver,
     C: Stage1MemoryConfig + Stage1PermissionConfig + D128AliasConfig,
 {
+    require_nt(level, raw.bbm_nt)?;
     let (nse, global) = decode_d128_stage1_alias::<P, A, C>(config, raw.alias_bit)?;
     Ok(SemanticStage1LeafAttrs {
         memory: Vmsa128Stage1Memory::decode(config, raw.attr_index)?,
@@ -286,6 +288,7 @@ where
 
 pub(super) fn decode_vmsa128_stage2_leaf<A, C>(
     config: &C,
+    level: Level,
     raw: RawVmsa128Stage2LeafAttrs,
 ) -> Result<
     SemanticStage2LeafAttrs<
@@ -299,6 +302,7 @@ where
     A: Stage2PasContext + Stage2PasResolver<Vmsa128, C, Software = TenBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
+    require_nt(level, raw.bbm_nt)?;
     let mut software = raw.software;
     let output_address_space = A::decode(config, raw.ns, &mut software)?;
     Ok(SemanticStage2LeafAttrs {

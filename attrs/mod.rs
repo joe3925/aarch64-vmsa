@@ -2,6 +2,7 @@ mod pas;
 mod permissions;
 pub(crate) mod raw;
 mod resolve;
+mod schema;
 mod semantic;
 
 pub use pas::*;
@@ -13,6 +14,7 @@ pub use resolve::{
     Stage1PermissionRegisters, Stage2MemoryConfig, Stage2MemoryMode, Stage2PermissionConfig,
     Stage2PermissionRegisters,
 };
+pub use schema::*;
 pub use semantic::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

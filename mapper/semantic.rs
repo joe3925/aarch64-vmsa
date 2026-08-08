@@ -1,9 +1,7 @@
 use crate::address::{Level, PhysAddr, TranslationGranule};
-use crate::attrs::{AttrError, AttributeCodec};
-use crate::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
-use crate::regime::{
-    RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime,
-};
+use crate::attrs::{AttrError, AttributeCodec, SemanticLeafAttrs, SemanticTableAttrs};
+use crate::descriptor::{DescriptorFormat, HasLayout};
+use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider};
 use crate::translation::walk::WalkInputAddr;
 
@@ -15,15 +13,7 @@ pub enum SemanticMapperError<AccessErrorKind, FrameErrorKind> {
     Mapper(MapperError<AccessErrorKind, FrameErrorKind>),
 }
 
-pub fn map_semantic_leaf<F, R, G, A, P, M, Cfg>(
-    mapper: &mut Mapper<F, R, G, A, P, M>,
-    config: &Cfg,
-    input: WalkInputAddr,
-    output: PhysAddr,
-    level: Level,
-    leaf_attrs: <F as AttributeCodec<R, G, Cfg>>::SemanticLeaf,
-    table_attrs: <F as AttributeCodec<R, G, Cfg>>::SemanticTable,
-) -> Result<MapLeafOutcome, SemanticMapperError<A::Error, P::Error>>
+impl<F, R, G, A, P, M> Mapper<F, R, G, A, P, M>
 where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
@@ -31,63 +21,55 @@ where
     A: TableAccessMut<F, G>,
     P: TableFrameProvider<G>,
     M: MapperMode<F, G>,
-    F: AttributeCodec<
-            R,
-            G,
-            Cfg,
-            RawLeaf = RegimeLeafFields<F, R, G>,
-            RawTable = RegimeTableFields<F, R, G>,
-        >,
-    RegimeLayout<F, R, G>: DescriptorLayout<R::Stage, G, Format = F>,
     RegimeLeafFields<F, R, G>: Copy,
 {
-    let leaf =
-        F::resolve_leaf(config, level, leaf_attrs).map_err(SemanticMapperError::Attribute)?;
-    let table =
-        F::resolve_table(config, level, table_attrs).map_err(SemanticMapperError::Attribute)?;
-    mapper
-        .map_leaf(input, output, level, leaf, table)
-        .map_err(SemanticMapperError::Mapper)
+    pub fn map_semantic_leaf<Cfg>(
+        &mut self,
+        config: &Cfg,
+        input: WalkInputAddr,
+        output: PhysAddr,
+        level: Level,
+        leaf_attrs: SemanticLeafAttrs<F, R>,
+        table_attrs: SemanticTableAttrs<F, R>,
+    ) -> Result<MapLeafOutcome, SemanticMapperError<A::Error, P::Error>>
+    where
+        F: AttributeCodec<R::Stage, R, G, Cfg>,
+    {
+        let leaf =
+            <F as AttributeCodec<R::Stage, R, G, Cfg>>::encode_leaf(config, level, leaf_attrs)
+                .map_err(SemanticMapperError::Attribute)?;
+        let table =
+            <F as AttributeCodec<R::Stage, R, G, Cfg>>::encode_table(config, level, table_attrs)
+                .map_err(SemanticMapperError::Attribute)?;
+        self.map_leaf(input, output, level, leaf, table)
+            .map_err(SemanticMapperError::Mapper)
+    }
 }
 
 pub fn decode_semantic_leaf<F, R, G, Cfg>(
     config: &Cfg,
     level: Level,
     raw: RegimeLeafFields<F, R, G>,
-) -> Result<<F as AttributeCodec<R, G, Cfg>>::SemanticLeaf, AttrError>
+) -> Result<SemanticLeafAttrs<F, R>, AttrError>
 where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    F: AttributeCodec<
-            R,
-            G,
-            Cfg,
-            RawLeaf = RegimeLeafFields<F, R, G>,
-            RawTable = RegimeTableFields<F, R, G>,
-        >,
-    RegimeLayout<F, R, G>: DescriptorLayout<R::Stage, G, Format = F>,
+    F: AttributeCodec<R::Stage, R, G, Cfg>,
 {
-    F::decode_leaf(config, level, raw)
+    <F as AttributeCodec<R::Stage, R, G, Cfg>>::decode_leaf(config, level, raw)
 }
 
 pub fn decode_semantic_table<F, R, G, Cfg>(
     config: &Cfg,
     level: Level,
     raw: RegimeTableFields<F, R, G>,
-) -> Result<<F as AttributeCodec<R, G, Cfg>>::SemanticTable, AttrError>
+) -> Result<SemanticTableAttrs<F, R>, AttrError>
 where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    F: AttributeCodec<
-            R,
-            G,
-            Cfg,
-            RawLeaf = RegimeLeafFields<F, R, G>,
-            RawTable = RegimeTableFields<F, R, G>,
-        >,
-    RegimeLayout<F, R, G>: DescriptorLayout<R::Stage, G, Format = F>,
+    F: AttributeCodec<R::Stage, R, G, Cfg>,
 {
-    F::decode_table(config, level, raw)
+    <F as AttributeCodec<R::Stage, R, G, Cfg>>::decode_table(config, level, raw)
 }

@@ -182,11 +182,6 @@ pub(crate) struct ResolvedStage2LeafAttrs<M, P, Pas, C> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SemanticStage2TableAttrs<C> {
-    pub controls: C,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticVmsa64Stage1LeafControls {
     pub shareability: Shareability,
     pub access_flag: bool,
