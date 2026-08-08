@@ -22,8 +22,7 @@ where
         });
     }
 
-    let root_shift = TableGeometry::<F, G>::level_shift(root.level());
-    let max_addr_bits = root_shift + TableGeometry::<F, G>::index_bits();
+    let max_addr_bits = TableGeometry::<F, G>::max_addr_bits(root.level()).unwrap_or(0);
 
     if root.addr_bits() == 0 || root.addr_bits() > max_addr_bits || root.addr_bits() > 64 {
         return Err(MapperError::InvalidRootAddressBits {
@@ -43,8 +42,8 @@ where
         });
     }
 
-    require_output_address::<AccessErrorKind, FrameErrorKind>(
-        root.addr().phys(),
+    require_table_address::<AccessErrorKind, FrameErrorKind>(
+        root.addr().raw(),
         root.output_addr_bits(),
     )?;
 
@@ -120,6 +119,20 @@ pub(super) fn require_output_address<AccessErrorKind, FrameErrorKind>(
         Ok(())
     } else {
         Err(MapperError::OutputAddressOutOfRange {
+            addr,
+            output_address_bits,
+        })
+    }
+}
+
+pub(super) fn require_table_address<AccessErrorKind, FrameErrorKind>(
+    addr: u64,
+    output_address_bits: u8,
+) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>> {
+    if output_address_bits >= 64 || addr >> output_address_bits == 0 {
+        Ok(())
+    } else {
+        Err(MapperError::TableAddressOutOfRange {
             addr,
             output_address_bits,
         })

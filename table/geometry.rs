@@ -10,6 +10,46 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
+    /// Returns the deepest supported root level that covers `addr_bits`.
+    ///
+    /// Invalid widths are assigned to the closest supported level and are
+    /// rejected later by root validation.
+    pub const fn root_level_for_addr_bits(addr_bits: u8) -> Level {
+        let mut level = F::FINAL_LEVEL;
+
+        loop {
+            match Self::max_addr_bits(level) {
+                Some(max_addr_bits) if addr_bits <= max_addr_bits => return level,
+                _ => {}
+            }
+
+            if !F::EXTENDED_LOWEST_ROOT_LEVEL.is_before(level) {
+                return level;
+            }
+
+            level = level.previous();
+        }
+    }
+
+    /// Returns the maximum input-address width covered by a root at `level`.
+    pub const fn max_addr_bits(level: Level) -> Option<u8> {
+        if level.is_after(F::FINAL_LEVEL) {
+            return None;
+        }
+
+        let delta = F::FINAL_LEVEL.as_i8() as i16 - level.as_i8() as i16;
+        if delta < 0 {
+            return None;
+        }
+
+        let bits = G::SHIFT as u16 + Self::index_bits() as u16 * (delta as u16 + 1);
+        Some(if bits > u64::BITS as u16 {
+            u64::BITS as u8
+        } else {
+            bits as u8
+        })
+    }
+
     pub const fn entries() -> usize {
         (G::SIZE as usize) / F::DESCRIPTOR_BYTES
     }

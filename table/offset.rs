@@ -5,7 +5,7 @@ use crate::address::VirtAddr;
 use crate::descriptor::DescriptorFormat;
 
 use super::{
-    AccessError, TableAccess, TableAccessLocation, TableAccessMut, TablePhysAddr, TranslationTable,
+    AccessError, TableAccess, TableAccessLocation, TableAccessMut, TableAddr, TranslationTable,
     TranslationTableMut,
 };
 
@@ -23,7 +23,7 @@ impl OffsetTableAccess {
         self.offset
     }
 
-    fn table_ptr<F, G>(&self, addr: TablePhysAddr<G>) -> Result<NonNull<F::Raw>, AccessError>
+    fn table_ptr<F, G>(&self, addr: TableAddr<G>) -> Result<NonNull<F::Raw>, AccessError>
     where
         F: DescriptorFormat,
         G: TranslationGranule,

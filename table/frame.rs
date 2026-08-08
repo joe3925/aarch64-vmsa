@@ -1,23 +1,19 @@
-use crate::address::{PhysAddr, TranslationGranule};
+use crate::address::TranslationGranule;
 
-use super::{TableAllocLayout, TablePhysAddr};
+use super::{TableAddr, TableAllocLayout};
 
 pub trait TableFrame<G>
 where
     G: TranslationGranule,
 {
-    fn addr(&self) -> TablePhysAddr<G>;
-
-    fn phys(&self) -> PhysAddr {
-        self.addr().phys()
-    }
+    fn addr(&self) -> TableAddr<G>;
 }
 
-impl<G> TableFrame<G> for TablePhysAddr<G>
+impl<G> TableFrame<G> for TableAddr<G>
 where
     G: TranslationGranule,
 {
-    fn addr(&self) -> TablePhysAddr<G> {
+    fn addr(&self) -> TableAddr<G> {
         *self
     }
 }
@@ -36,7 +32,7 @@ where
 
     unsafe fn free_table(
         &mut self,
-        frame: TablePhysAddr<G>,
+        frame: TableAddr<G>,
         layout: TableAllocLayout,
     ) -> Result<(), Self::Error>;
 }

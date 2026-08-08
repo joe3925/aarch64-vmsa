@@ -33,7 +33,7 @@ use crate::translation::walk::{WalkCursor, WalkInputAddr, WalkLeaf, WalkStep, Wa
 use self::error::map_walk_error;
 use self::validate::{
     add_output, leaf_kind, mapping_size, require_aligned_input, require_aligned_output,
-    require_output_address, require_output_range, validate_root,
+    require_output_range, require_table_address, validate_root,
 };
 
 pub struct Mapper<F, R, G, A, P, M>
@@ -271,15 +271,15 @@ where
                         .frames
                         .allocate_zeroed_table(layout)
                         .map_err(MapperError::Frame)?;
-                    child_shape.validate_base(frame.phys())?;
-                    require_output_address::<A::Error, P::Error>(
-                        frame.phys(),
+                    child_shape.validate_base(frame.addr())?;
+                    require_table_address::<A::Error, P::Error>(
+                        frame.addr().raw(),
                         self.root.output_addr_bits(),
                     )?;
 
                     let table_raw =
                         <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::table_descriptor(
-                            frame.phys(),
+                            frame.addr(),
                             transition,
                             plan.into_fields(),
                         )?;

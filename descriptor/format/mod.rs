@@ -10,7 +10,7 @@ use portable_atomic::{AtomicU128, Ordering};
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::arch::FeatureRequirements;
-use crate::table::TableTransition;
+use crate::table::{TableAddr, TableTransition};
 use crate::translation::TranslationStage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,8 +22,11 @@ pub enum DescriptorKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NextTableDescriptor {
-    pub address: PhysAddr,
+pub struct NextTableDescriptor<G>
+where
+    G: TranslationGranule,
+{
+    pub address: TableAddr<G>,
     pub level: Level,
     pub stride_count: u8,
 }
@@ -86,17 +89,22 @@ where
         fields: Self::LeafFields,
     ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
     fn table_descriptor(
-        table_pa: PhysAddr,
+        table_addr: TableAddr<G>,
         transition: TableTransition<Self::Format, G>,
         fields: Self::TableFields,
     ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
     fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
 
-    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr {
-        Self::output_address(raw, level)
+    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G> {
+        let raw = Self::output_address(raw, level).0;
+        // SAFETY: Descriptor address fields do not contain granule-offset bits.
+        unsafe { TableAddr::new_unchecked(raw) }
     }
 
-    fn next_table(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Option<NextTableDescriptor> {
+    fn next_table(
+        raw: <Self::Format as DescriptorFormat>::Raw,
+        level: Level,
+    ) -> Option<NextTableDescriptor<G>> {
         level
             .is_before(Self::Format::FINAL_LEVEL)
             .then(|| NextTableDescriptor {
@@ -231,6 +239,6 @@ where
     }
 }
 
-pub(crate) const fn insert_address(raw: u128, address: PhysAddr, mask: u128) -> u128 {
-    (raw & !mask) | (address.0 as u128 & mask)
+pub(crate) const fn insert_address(raw: u128, address: u64, mask: u128) -> u128 {
+    (raw & !mask) | (address as u128 & mask)
 }

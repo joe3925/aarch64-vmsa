@@ -1,6 +1,6 @@
 use crate::address::TranslationGranule;
 use crate::descriptor::DescriptorFormat;
-use crate::table::{TableAccessLocation, TableAllocLayout, TablePhysAddr};
+use crate::table::{TableAccessLocation, TableAddr, TableAllocLayout};
 
 pub trait MapperInvalidation<F, G>
 where
@@ -32,7 +32,7 @@ where
         old: F::Raw,
     );
 
-    fn before_table_frame_reclaim(&mut self, table: TablePhysAddr<G>, layout: TableAllocLayout);
+    fn before_table_frame_reclaim(&mut self, table: TableAddr<G>, layout: TableAllocLayout);
 
     fn synchronize(&mut self);
 }
@@ -100,7 +100,7 @@ where
         new: F::Raw,
     );
     fn table_removed(&mut self, location: TableAccessLocation<F, G>, index: usize, old: F::Raw);
-    fn before_reclaim(&mut self, table: TablePhysAddr<G>, layout: TableAllocLayout);
+    fn before_reclaim(&mut self, table: TableAddr<G>, layout: TableAllocLayout);
     fn synchronize(&mut self);
 }
 
@@ -132,7 +132,7 @@ where
     fn table_removed(&mut self, _location: TableAccessLocation<F, G>, _index: usize, _old: F::Raw) {
     }
 
-    fn before_reclaim(&mut self, _table: TablePhysAddr<G>, _layout: TableAllocLayout) {}
+    fn before_reclaim(&mut self, _table: TableAddr<G>, _layout: TableAllocLayout) {}
     fn synchronize(&mut self) {}
 }
 
@@ -172,7 +172,7 @@ where
             .table_descriptor_removed(location, index, old);
     }
 
-    fn before_reclaim(&mut self, table: TablePhysAddr<G>, layout: TableAllocLayout) {
+    fn before_reclaim(&mut self, table: TableAddr<G>, layout: TableAllocLayout) {
         self.invalidation.before_table_frame_reclaim(table, layout);
     }
 

@@ -47,6 +47,10 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
         addr: PhysAddr,
         output_address_bits: u8,
     },
+    TableAddressOutOfRange {
+        addr: u64,
+        output_address_bits: u8,
+    },
 
     UnalignedInput {
         addr: u64,

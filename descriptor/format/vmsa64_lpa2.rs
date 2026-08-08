@@ -6,7 +6,7 @@ use crate::attrs::{
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, Stage2Ap, Stage2ExecuteNever, ThreeBit,
 };
 use crate::descriptor::layout::{vmsa64 as b, vmsa64_lpa2 as lpa2};
-use crate::table::TableTransition;
+use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
 
 use super::vmsa64_family::{
@@ -79,7 +79,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
     ) -> Result<u64, DescriptorError> {
         require_leaf_level::<G>(level)?;
         let mut raw = 0;
-        raw |= encode_address::<G>(output_pa) as u128;
+        raw |= encode_address::<G>(output_pa.0) as u128;
         raw = b::VMSA64_STAGE1_ATTR_INDEX.insert(raw, f.attr_index.bits().into());
         raw = b::VMSA64_STAGE1_NS.insert(raw, f.ns.into());
         raw = b::VMSA64_STAGE1_AP.insert(raw, f.ap.bits().into());
@@ -100,13 +100,13 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
         Ok(raw as u64)
     }
     fn table_descriptor(
-        table_pa: PhysAddr,
+        table_addr: TableAddr<G>,
         transition: TableTransition<Vmsa64Lpa2, G>,
         f: Self::TableFields,
     ) -> Result<u64, DescriptorError> {
         require_step_by_one_transition(transition)?;
         let mut raw = 0;
-        raw |= encode_address::<G>(table_pa) as u128;
+        raw |= encode_address::<G>(table_addr.raw()) as u128;
         raw = b::VMSA64_PXN_TABLE.insert(raw, f.privileged_execute_never_limit.into());
         raw = b::VMSA64_UXN_TABLE.insert(raw, f.unprivileged_execute_never_limit.into());
         raw = b::VMSA64_AP_TABLE.insert(raw, f.ap_table.bits().into());
@@ -162,7 +162,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G>
     ) -> Result<u64, DescriptorError> {
         require_leaf_level::<G>(level)?;
         let mut raw = 0;
-        raw |= encode_address::<G>(output_pa) as u128;
+        raw |= encode_address::<G>(output_pa.0) as u128;
         raw = b::VMSA64_STAGE2_MEM_ATTR.insert(raw, f.mem_attr.bits().into());
         raw = b::VMSA64_STAGE2_AP.insert(raw, f.access.bits().into());
         if uses_ds(G::KIND) {
@@ -180,13 +180,13 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G>
         Ok(raw as u64)
     }
     fn table_descriptor(
-        table_pa: PhysAddr,
+        table_addr: TableAddr<G>,
         transition: TableTransition<Vmsa64Lpa2, G>,
         f: Self::TableFields,
     ) -> Result<u64, DescriptorError> {
         require_step_by_one_transition(transition)?;
         let mut raw = 0;
-        raw |= encode_address::<G>(table_pa) as u128;
+        raw |= encode_address::<G>(table_addr.raw()) as u128;
         raw = finish_table(raw, f.software);
         check_reserved(raw, table_res0(G::KIND, false), b::stage2_table::RES1_MASK)?;
         Ok(raw as u64)
@@ -223,11 +223,11 @@ const fn address_field_mask(granule: GranuleKind) -> u128 {
     }
 }
 
-fn encode_address<G: TranslationGranule>(address: PhysAddr) -> u64 {
+fn encode_address<G: TranslationGranule>(address: u64) -> u64 {
     if uses_ds(G::KIND) {
-        (address.0 & 0x0003_ffff_ffff_f000) | (((address.0 >> 50) & 0x3) << 8)
+        (address & 0x0003_ffff_ffff_f000) | (((address >> 50) & 0x3) << 8)
     } else {
-        (address.0 & 0x0000_ffff_ffff_0000) | (((address.0 >> 48) & 0xf) << 12)
+        (address & 0x0000_ffff_ffff_0000) | (((address >> 48) & 0xf) << 12)
     }
 }
 

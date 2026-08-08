@@ -7,7 +7,7 @@ use crate::regime::{
 };
 use crate::table::{
     AccessError, NextTable, RootTable, TableAccess, TableAccessLocation, TableAddressError,
-    TableCursor, TableGeometry, TablePhysAddr, TableWalkPath, TranslationTable,
+    TableAddr, TableCursor, TableGeometry, TableWalkPath, TranslationTable,
 };
 
 unsafe impl<'access, F, G, A> TableAccess<F, G> for &'access A
@@ -75,7 +75,7 @@ where
 {
     pub fn new(
         input: WalkInputAddr,
-        root: TablePhysAddr<G>,
+        root: TableAddr<G>,
         root_level: Level,
     ) -> Result<Self, WalkCursorError> {
         validate_root_level::<F>(root_level)?;
@@ -90,7 +90,7 @@ where
         self.input
     }
 
-    pub const fn root(self) -> TablePhysAddr<G> {
+    pub const fn root(self) -> TableAddr<G> {
         self.table.root_addr()
     }
 
@@ -98,7 +98,7 @@ where
         self.table.root_level()
     }
 
-    pub const fn current(self) -> TablePhysAddr<G> {
+    pub const fn current(self) -> TableAddr<G> {
         self.table.current()
     }
 
@@ -281,7 +281,7 @@ where
         self.entry_index
     }
 
-    pub const fn next(&self) -> TablePhysAddr<G> {
+    pub const fn next(&self) -> TableAddr<G> {
         self.next.addr()
     }
 
@@ -389,7 +389,7 @@ where
         Ok(Self { root, access })
     }
 
-    pub const fn root(&self) -> TablePhysAddr<G> {
+    pub const fn root(&self) -> TableAddr<G> {
         self.root.addr()
     }
 
@@ -541,12 +541,7 @@ where
                 raw, level,
             )
             .ok_or(WalkError::TableDescriptorAtFinalLevel { level })?;
-        let next_addr = TablePhysAddr::<G>::new(next_descriptor.address)?;
-        let next = NextTable::<F, G>::new(
-            next_addr,
-            next_descriptor.level,
-            next_descriptor.stride_count,
-        )?;
+        let next = NextTable::<F, G>::from_descriptor(next_descriptor)?;
         let next_cursor = cursor.next_table(entry_index, next)?;
         let next_location = next_cursor.location()?;
 

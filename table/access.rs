@@ -1,9 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, NextTableDescriptor};
 
-use super::{AccessError, TableGeometry, TablePhysAddr, TranslationTable, TranslationTableMut};
+use super::{AccessError, TableAddr, TableGeometry, TranslationTable, TranslationTableMut};
 
 const PATH_STRIDE_BITS: u8 = 2;
 const PATH_STRIDE_MASK: u128 = (1 << PATH_STRIDE_BITS) - 1;
@@ -125,14 +125,14 @@ where
         Ok(TableAllocLayout::new(bytes, bytes))
     }
 
-    pub fn validate_base(self, addr: PhysAddr) -> Result<(), AccessError> {
+    pub fn validate_base(self, addr: TableAddr<G>) -> Result<(), AccessError> {
         let layout = self.alloc_layout()?;
 
-        if addr.0 & (layout.align() - 1) == 0 {
+        if addr.raw() & (layout.align() - 1) == 0 {
             Ok(())
         } else {
             Err(AccessError::UnalignedTableAddress {
-                addr,
+                addr: addr.raw(),
                 align: layout.align(),
             })
         }
@@ -153,7 +153,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    addr: TablePhysAddr<G>,
+    addr: TableAddr<G>,
     shape: TableShape<F, G>,
 }
 
@@ -163,24 +163,25 @@ where
     G: TranslationGranule,
 {
     pub fn new(
-        addr: TablePhysAddr<G>,
+        addr: TableAddr<G>,
         level: Level,
         stride_count: u8,
     ) -> Result<Self, AccessError> {
         let shape = TableShape::new(level, stride_count)?;
-        shape.validate_base(addr.phys())?;
+        shape.validate_base(addr)?;
 
         Ok(Self { addr, shape })
     }
 
-    pub fn from_descriptor(descriptor: NextTableDescriptor) -> Result<Self, AccessError> {
-        Ok(Self {
-            addr: TablePhysAddr::new(descriptor.address)?,
-            shape: TableShape::new(descriptor.level, descriptor.stride_count)?,
-        })
+    pub fn from_descriptor(descriptor: NextTableDescriptor<G>) -> Result<Self, AccessError> {
+        Self::new(
+            descriptor.address,
+            descriptor.level,
+            descriptor.stride_count,
+        )
     }
 
-    pub const fn addr(self) -> TablePhysAddr<G> {
+    pub const fn addr(self) -> TableAddr<G> {
         self.addr
     }
 
@@ -583,9 +584,9 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    root: TablePhysAddr<G>,
+    root: TableAddr<G>,
     root_level: Level,
-    current: TablePhysAddr<G>,
+    current: TableAddr<G>,
     shape: TableShape<F, G>,
     path: TableWalkPath<F, G>,
 }
@@ -595,7 +596,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn root(addr: TablePhysAddr<G>, root_level: Level) -> Self {
+    pub const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
         Self {
             root: addr,
             root_level,
@@ -606,9 +607,9 @@ where
     }
 
     pub fn new(
-        root: TablePhysAddr<G>,
+        root: TableAddr<G>,
         root_level: Level,
-        current: TablePhysAddr<G>,
+        current: TableAddr<G>,
         shape: TableShape<F, G>,
         path: TableWalkPath<F, G>,
     ) -> Result<Self, AccessError> {
@@ -637,7 +638,7 @@ where
         })
     }
 
-    pub const fn root_addr(self) -> TablePhysAddr<G> {
+    pub const fn root_addr(self) -> TableAddr<G> {
         self.root
     }
 
@@ -645,7 +646,7 @@ where
         self.root_level
     }
 
-    pub const fn current(self) -> TablePhysAddr<G> {
+    pub const fn current(self) -> TableAddr<G> {
         self.current
     }
 
@@ -709,7 +710,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn root(addr: TablePhysAddr<G>, root_level: Level) -> Self {
+    pub const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
         Self {
             cursor: TableCursor::root(addr, root_level),
         }
@@ -730,7 +731,7 @@ where
         self.cursor
     }
 
-    pub const fn addr(self) -> TablePhysAddr<G> {
+    pub const fn addr(self) -> TableAddr<G> {
         self.cursor.current()
     }
 

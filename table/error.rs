@@ -1,5 +1,5 @@
 use crate::address::Level;
-use crate::address::{PhysAddr, VirtAddr};
+use crate::address::VirtAddr;
 
 use super::TableAddressError;
 
@@ -13,7 +13,7 @@ pub enum AccessError {
     AddressOverflow,
     NullMapping,
     UnalignedTableAddress {
-        addr: PhysAddr,
+        addr: u64,
         align: u64,
     },
     RecursiveLevelMismatch,

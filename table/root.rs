@@ -4,7 +4,7 @@ use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 use crate::regime::TranslationRegime;
 
-use super::TablePhysAddr;
+use super::{TableAddr, TableGeometry};
 
 /// Regime-independent root-table geometry for low-level validation and access.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,7 +13,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    addr: TablePhysAddr<G>,
+    addr: TableAddr<G>,
     level: Level,
     addr_bits: u8,
     output_addr_bits: u8,
@@ -25,8 +25,20 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn new(
-        addr: TablePhysAddr<G>,
+    /// Creates root geometry using the deepest supported level that covers
+    /// `addr_bits`.
+    pub const fn new(addr: TableAddr<G>, addr_bits: u8, output_addr_bits: u8) -> Self {
+        Self::new_at_level(
+            addr,
+            TableGeometry::<F, G>::root_level_for_addr_bits(addr_bits),
+            addr_bits,
+            output_addr_bits,
+        )
+    }
+
+    /// Creates root geometry at an explicitly selected translation level.
+    pub const fn new_at_level(
+        addr: TableAddr<G>,
         level: Level,
         addr_bits: u8,
         output_addr_bits: u8,
@@ -40,7 +52,7 @@ where
         }
     }
 
-    pub const fn addr(self) -> TablePhysAddr<G> {
+    pub const fn addr(self) -> TableAddr<G> {
         self.addr
     }
 
@@ -82,20 +94,6 @@ where
     R: TranslationRegime,
     G: TranslationGranule,
 {
-    pub const fn new(
-        addr: TablePhysAddr<G>,
-        level: Level,
-        addr_bits: u8,
-        output_addr_bits: u8,
-    ) -> Self {
-        Self::from_geometry(RootTableGeometry::new(
-            addr,
-            level,
-            addr_bits,
-            output_addr_bits,
-        ))
-    }
-
     pub const fn from_geometry(geometry: RootTableGeometry<F, G>) -> Self {
         Self {
             geometry,
@@ -107,7 +105,7 @@ where
         self.geometry
     }
 
-    pub const fn addr(self) -> TablePhysAddr<G> {
+    pub const fn addr(self) -> TableAddr<G> {
         self.geometry.addr()
     }
 

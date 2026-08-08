@@ -6,7 +6,7 @@ use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 
 use super::{
-    AccessError, TableAccess, TableAccessLocation, TableAccessMut, TableGeometry, TablePhysAddr,
+    AccessError, TableAccess, TableAccessLocation, TableAccessMut, TableAddr, TableGeometry,
     TranslationTable, TranslationTableMut,
 };
 
@@ -18,7 +18,7 @@ where
 {
     recursive_index: usize,
     recursive_base: VirtAddr,
-    root: TablePhysAddr<G>,
+    root: TableAddr<G>,
     root_level: Level,
     _marker: PhantomData<F>,
 }
@@ -31,7 +31,7 @@ where
     pub unsafe fn new(
         recursive_index: usize,
         recursive_base: VirtAddr,
-        root: TablePhysAddr<G>,
+        root: TableAddr<G>,
         root_level: Level,
     ) -> Result<Self, AccessError> {
         let entries = TableGeometry::<F, G>::entries();
@@ -88,7 +88,7 @@ where
         self.recursive_base
     }
 
-    pub const fn root(&self) -> TablePhysAddr<G> {
+    pub const fn root(&self) -> TableAddr<G> {
         self.root
     }
 

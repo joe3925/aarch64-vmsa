@@ -1,50 +1,56 @@
 use core::marker::PhantomData;
 
-use crate::address::PhysAddr;
 use crate::address::TranslationGranule;
 
+/// An address in the modeled translation-table address space.
+///
+/// Hardware users normally place a physical or intermediate physical address
+/// here. Simulators may instead use any stable, aligned numeric address that
+/// their [`TableAccess`](super::TableAccess) implementation can resolve.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct TablePhysAddr<G>
+pub struct TableAddr<G>
 where
     G: TranslationGranule,
 {
-    addr: PhysAddr,
+    raw: u64,
     _marker: PhantomData<G>,
 }
 
-impl<G> TablePhysAddr<G>
+impl<G> TableAddr<G>
 where
     G: TranslationGranule,
 {
-    pub const unsafe fn new_unchecked(addr: PhysAddr) -> Self {
+    /// Creates a table address without checking its granule alignment.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be aligned to `G::SIZE`.
+    pub const unsafe fn new_unchecked(raw: u64) -> Self {
         Self {
-            addr,
+            raw,
             _marker: PhantomData,
         }
     }
 
-    pub fn new(addr: PhysAddr) -> Result<Self, TableAddressError> {
-        if addr.0 & (G::SIZE - 1) != 0 {
+    pub fn new(raw: u64) -> Result<Self, TableAddressError> {
+        if raw & (G::SIZE - 1) != 0 {
             return Err(TableAddressError::Unaligned {
-                addr,
+                addr: raw,
                 align: G::SIZE,
             });
         }
 
-        Ok(unsafe { Self::new_unchecked(addr) })
-    }
-
-    pub const fn phys(self) -> PhysAddr {
-        self.addr
+        // SAFETY: The granule-alignment requirement was checked above.
+        Ok(unsafe { Self::new_unchecked(raw) })
     }
 
     pub const fn raw(self) -> u64 {
-        self.addr.0
+        self.raw
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TableAddressError {
-    Unaligned { addr: PhysAddr, align: u64 },
+    Unaligned { addr: u64, align: u64 },
 }

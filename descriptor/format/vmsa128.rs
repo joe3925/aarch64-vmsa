@@ -7,7 +7,7 @@ use crate::attrs::{
     Stage1NotDirty, Stage2Dirty, TenBit,
 };
 use crate::descriptor::layout::vmsa128 as b;
-use crate::table::TableTransition;
+use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
 
 use super::{
@@ -81,7 +81,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
         let mut raw = 0;
-        raw = insert_address(raw, output_pa, Self::ADDRESS_FIELD_MASK);
+        raw = insert_address(raw, output_pa.0, Self::ADDRESS_FIELD_MASK);
         raw = pack_common_leaf(
             raw,
             f.attr_index,
@@ -103,7 +103,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
         Ok(raw)
     }
     fn table_descriptor(
-        table_pa: PhysAddr,
+        table_addr: TableAddr<G>,
         transition: TableTransition<Vmsa128, G>,
         f: Self::TableFields,
     ) -> Result<u128, DescriptorError> {
@@ -112,7 +112,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
             return Err(DescriptorError::ReservedFieldSet { bit: 6 });
         }
         let mut raw = 0;
-        raw = insert_address(raw, table_pa, Self::ADDRESS_FIELD_MASK);
+        raw = insert_address(raw, table_addr.raw(), Self::ADDRESS_FIELD_MASK);
         raw = pack_common_table(raw, f.table_nt, f.access_flag, skl, f.disch, f.protected);
         raw = b::D128_NS_OR_NSTABLE.insert(raw, f.ns_table.into());
         raw = b::D128_SOFTWARE.insert(raw, f.software.bits().into());
@@ -123,10 +123,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
     fn output_address(raw: u128, level: Level) -> PhysAddr {
         output_address::<G>(raw, level)
     }
-    fn table_address(raw: u128, _level: Level) -> PhysAddr {
+    fn table_address(raw: u128, _level: Level) -> TableAddr<G> {
         table_address::<G>(raw)
     }
-    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor> {
+    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor<G>> {
         Some(NextTableDescriptor {
             address: table_address::<G>(raw),
             level: next_table_level(raw, level)?,
@@ -194,7 +194,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
         let mut raw = 0;
-        raw = insert_address(raw, output_pa, Self::ADDRESS_FIELD_MASK);
+        raw = insert_address(raw, output_pa.0, Self::ADDRESS_FIELD_MASK);
         raw = pack_common_leaf(
             raw,
             f.mem_attr,
@@ -215,7 +215,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
         Ok(raw)
     }
     fn table_descriptor(
-        table_pa: PhysAddr,
+        table_addr: TableAddr<G>,
         transition: TableTransition<Vmsa128, G>,
         f: Self::TableFields,
     ) -> Result<u128, DescriptorError> {
@@ -224,7 +224,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             return Err(DescriptorError::ReservedFieldSet { bit: 6 });
         }
         let mut raw = 0;
-        raw = insert_address(raw, table_pa, Self::ADDRESS_FIELD_MASK);
+        raw = insert_address(raw, table_addr.raw(), Self::ADDRESS_FIELD_MASK);
         raw = b::D128_NT.insert(raw, f.table_nt.into());
         raw = b::D128_ACCESS_FLAG.insert(raw, f.access_flag.into());
         raw = b::D128_SKL.insert(raw, skl.into());
@@ -236,10 +236,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
     fn output_address(raw: u128, level: Level) -> PhysAddr {
         output_address::<G>(raw, level)
     }
-    fn table_address(raw: u128, _level: Level) -> PhysAddr {
+    fn table_address(raw: u128, _level: Level) -> TableAddr<G> {
         table_address::<G>(raw)
     }
-    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor> {
+    fn next_table(raw: u128, level: Level) -> Option<NextTableDescriptor<G>> {
         Some(NextTableDescriptor {
             address: table_address::<G>(raw),
             level: next_table_level(raw, level)?,
@@ -382,10 +382,12 @@ fn output_address<G: TranslationGranule>(raw: u128, level: Level) -> PhysAddr {
     PhysAddr(align_down(address, bits))
 }
 
-fn table_address<G: TranslationGranule>(raw: u128) -> PhysAddr {
+fn table_address<G: TranslationGranule>(raw: u128) -> TableAddr<G> {
     let address = (raw & b::ADDRESS_FIELD_MASK) as u64;
     let bits = 4 + (G::SHIFT - 4) * (raw_skl(raw) + 1);
-    PhysAddr(align_down(address, bits))
+    let address = align_down(address, bits);
+    // SAFETY: D128 table addresses are aligned by the descriptor's SKL.
+    unsafe { TableAddr::new_unchecked(address) }
 }
 
 const fn align_down(address: u64, bits: u8) -> u64 {
