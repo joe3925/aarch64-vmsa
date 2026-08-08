@@ -6,15 +6,13 @@ mod stage2_permissions;
 mod vmsa128;
 mod vmsa64;
 
-pub use codec::*;
+pub use codec::AttributeCodec;
 pub(crate) use memory::*;
 pub(crate) use pas::*;
 pub(crate) use stage1_permissions::*;
 pub use stage1_permissions::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
 pub use stage2_permissions::Stage2PermissionRegisters;
 pub(crate) use stage2_permissions::*;
-use vmsa64::*;
-use vmsa128::*;
 
 use super::{D128Stage1AliasKind, Shareability};
 
