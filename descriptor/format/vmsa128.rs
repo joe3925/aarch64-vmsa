@@ -44,31 +44,31 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
     }
     fn decode_leaf_fields(raw: u128, _level: Level) -> Self::LeafFields {
         RawVmsa128Stage1LeafAttrs {
-            attr_index: FourBit::from_masked(b::D128_ATTR_INDEX::extract(raw)),
-            bbm_nt: b::D128_NT::extract(raw) != 0,
-            not_dirty: Stage1NotDirty::new(b::D128_STAGE1_NDIRTY::extract(raw) != 0),
-            shareability: RawShareability::from_masked(b::D128_SHAREABILITY::extract(raw)),
-            access_flag: b::D128_ACCESS_FLAG::extract(raw) != 0,
-            alias_bit: b::D128_LEAF_ALIAS::extract(raw) != 0,
-            contiguous: b::D128_CONTIGUOUS::extract(raw) != 0,
-            guarded: b::D128_GUARDED::extract(raw) != 0,
-            protected: b::D128_PROTECTED_OR_ASSURED_ONLY::extract(raw) != 0,
+            attr_index: FourBit::from_masked(b::D128_ATTR_INDEX.extract(raw)),
+            bbm_nt: b::D128_NT.extract(raw) != 0,
+            not_dirty: Stage1NotDirty::new(b::D128_STAGE1_NDIRTY.extract(raw) != 0),
+            shareability: RawShareability::from_masked(b::D128_SHAREABILITY.extract(raw)),
+            access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
+            alias_bit: b::D128_LEAF_ALIAS.extract(raw) != 0,
+            contiguous: b::D128_CONTIGUOUS.extract(raw) != 0,
+            guarded: b::D128_GUARDED.extract(raw) != 0,
+            protected: b::D128_PROTECTED_OR_ASSURED_ONLY.extract(raw) != 0,
             permissions: PermissionIndices {
-                pi: FourBit::from_masked(b::D128_PI_INDEX::extract(raw)),
-                po: FourBit::from_masked(b::D128_PO_INDEX::extract(raw)),
+                pi: FourBit::from_masked(b::D128_PI_INDEX.extract(raw)),
+                po: FourBit::from_masked(b::D128_PO_INDEX.extract(raw)),
             },
-            ns: b::D128_NS_OR_NSTABLE::extract(raw) != 0,
-            software: TenBit::from_masked(b::D128_SOFTWARE::extract(raw)),
+            ns: b::D128_NS_OR_NSTABLE.extract(raw) != 0,
+            software: TenBit::from_masked(b::D128_SOFTWARE.extract(raw)),
         }
     }
     fn decode_table_fields(raw: u128, _level: Level) -> Self::TableFields {
         RawVmsa128Stage1TableAttrs {
-            table_nt: b::D128_NT::extract(raw) != 0,
-            access_flag: b::D128_ACCESS_FLAG::extract(raw) != 0,
-            disch: b::D128_DISCH::extract(raw) != 0,
-            protected: b::D128_PROTECTED_OR_ASSURED_ONLY::extract(raw) != 0,
-            ns_table: b::D128_NS_OR_NSTABLE::extract(raw) != 0,
-            software: TenBit::from_masked(b::D128_SOFTWARE::extract(raw)),
+            table_nt: b::D128_NT.extract(raw) != 0,
+            access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
+            disch: b::D128_DISCH.extract(raw) != 0,
+            protected: b::D128_PROTECTED_OR_ASSURED_ONLY.extract(raw) != 0,
+            ns_table: b::D128_NS_OR_NSTABLE.extract(raw) != 0,
+            software: TenBit::from_masked(b::D128_SOFTWARE.extract(raw)),
         }
     }
     fn leaf_descriptor(
@@ -95,10 +95,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
             f.permissions,
             f.ns,
         );
-        raw = b::D128_GUARDED::insert(raw, f.guarded.into());
-        raw = b::D128_STAGE1_NDIRTY::insert(raw, f.not_dirty.bit().into());
-        raw = b::D128_SOFTWARE::insert(raw, f.software.bits().into());
-        raw = b::D128_VALID::insert(raw, 1);
+        raw = b::D128_GUARDED.insert(raw, f.guarded.into());
+        raw = b::D128_STAGE1_NDIRTY.insert(raw, f.not_dirty.bit().into());
+        raw = b::D128_SOFTWARE.insert(raw, f.software.bits().into());
+        raw = b::D128_VALID.insert(raw, 1);
         check(raw, b::stage1_leaf::RES0_MASK, b::stage1_leaf::RES1_MASK)?;
         Ok(raw)
     }
@@ -114,9 +114,9 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
         let mut raw = 0;
         raw = insert_address(raw, table_pa, Self::ADDRESS_FIELD_MASK);
         raw = pack_common_table(raw, f.table_nt, f.access_flag, skl, f.disch, f.protected);
-        raw = b::D128_NS_OR_NSTABLE::insert(raw, f.ns_table.into());
-        raw = b::D128_SOFTWARE::insert(raw, f.software.bits().into());
-        raw = b::D128_VALID::insert(raw, 1);
+        raw = b::D128_NS_OR_NSTABLE.insert(raw, f.ns_table.into());
+        raw = b::D128_SOFTWARE.insert(raw, f.software.bits().into());
+        raw = b::D128_VALID.insert(raw, 1);
         check(raw, b::stage1_table::RES0_MASK, b::stage1_table::RES1_MASK)?;
         Ok(raw)
     }
@@ -161,27 +161,27 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
     }
     fn decode_leaf_fields(raw: u128, _level: Level) -> Self::LeafFields {
         RawVmsa128Stage2LeafAttrs {
-            mem_attr: FourBit::from_masked(b::D128_ATTR_INDEX::extract(raw)),
-            bbm_nt: b::D128_NT::extract(raw) != 0,
-            dirty: Stage2Dirty::new(b::D128_STAGE2_DIRTY::extract(raw) != 0),
-            shareability: RawShareability::from_masked(b::D128_SHAREABILITY::extract(raw)),
-            access_flag: b::D128_ACCESS_FLAG::extract(raw) != 0,
-            force_no_execute: b::D128_LEAF_ALIAS::extract(raw) != 0,
-            contiguous: b::D128_CONTIGUOUS::extract(raw) != 0,
-            assured_only: b::D128_PROTECTED_OR_ASSURED_ONLY::extract(raw) != 0,
+            mem_attr: FourBit::from_masked(b::D128_ATTR_INDEX.extract(raw)),
+            bbm_nt: b::D128_NT.extract(raw) != 0,
+            dirty: Stage2Dirty::new(b::D128_STAGE2_DIRTY.extract(raw) != 0),
+            shareability: RawShareability::from_masked(b::D128_SHAREABILITY.extract(raw)),
+            access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
+            force_no_execute: b::D128_LEAF_ALIAS.extract(raw) != 0,
+            contiguous: b::D128_CONTIGUOUS.extract(raw) != 0,
+            assured_only: b::D128_PROTECTED_OR_ASSURED_ONLY.extract(raw) != 0,
             permissions: PermissionIndices {
-                pi: FourBit::from_masked(b::D128_PI_INDEX::extract(raw)),
-                po: FourBit::from_masked(b::D128_PO_INDEX::extract(raw)),
+                pi: FourBit::from_masked(b::D128_PI_INDEX.extract(raw)),
+                po: FourBit::from_masked(b::D128_PO_INDEX.extract(raw)),
             },
-            ns: b::D128_NS_OR_NSTABLE::extract(raw) != 0,
-            software: TenBit::from_masked(b::D128_SOFTWARE::extract(raw)),
+            ns: b::D128_NS_OR_NSTABLE.extract(raw) != 0,
+            software: TenBit::from_masked(b::D128_SOFTWARE.extract(raw)),
         }
     }
     fn decode_table_fields(raw: u128, _level: Level) -> Self::TableFields {
         RawVmsa128Stage2TableAttrs {
-            table_nt: b::D128_NT::extract(raw) != 0,
-            access_flag: b::D128_ACCESS_FLAG::extract(raw) != 0,
-            software: TenBit::from_masked(b::D128_SOFTWARE::extract(raw)),
+            table_nt: b::D128_NT.extract(raw) != 0,
+            access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
+            software: TenBit::from_masked(b::D128_SOFTWARE.extract(raw)),
         }
     }
     fn leaf_descriptor(
@@ -208,9 +208,9 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             f.permissions,
             f.ns,
         );
-        raw = b::D128_STAGE2_DIRTY::insert(raw, f.dirty.bit().into());
-        raw = b::D128_SOFTWARE::insert(raw, f.software.bits().into());
-        raw = b::D128_VALID::insert(raw, 1);
+        raw = b::D128_STAGE2_DIRTY.insert(raw, f.dirty.bit().into());
+        raw = b::D128_SOFTWARE.insert(raw, f.software.bits().into());
+        raw = b::D128_VALID.insert(raw, 1);
         check(raw, b::stage2_leaf::RES0_MASK, b::stage2_leaf::RES1_MASK)?;
         Ok(raw)
     }
@@ -225,11 +225,11 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
         }
         let mut raw = 0;
         raw = insert_address(raw, table_pa, Self::ADDRESS_FIELD_MASK);
-        raw = b::D128_NT::insert(raw, f.table_nt.into());
-        raw = b::D128_ACCESS_FLAG::insert(raw, f.access_flag.into());
-        raw = b::D128_SKL::insert(raw, skl.into());
-        raw = b::D128_SOFTWARE::insert(raw, f.software.bits().into());
-        raw = b::D128_VALID::insert(raw, 1);
+        raw = b::D128_NT.insert(raw, f.table_nt.into());
+        raw = b::D128_ACCESS_FLAG.insert(raw, f.access_flag.into());
+        raw = b::D128_SKL.insert(raw, skl.into());
+        raw = b::D128_SOFTWARE.insert(raw, f.software.bits().into());
+        raw = b::D128_VALID.insert(raw, 1);
         check(raw, b::stage2_table::RES0_MASK, b::stage2_table::RES1_MASK)?;
         Ok(raw)
     }
@@ -265,17 +265,17 @@ fn pack_common_leaf(
     permissions: PermissionIndices,
     ns: bool,
 ) -> u128 {
-    raw = b::D128_ATTR_INDEX::insert(raw, memory.bits().into());
-    raw = b::D128_NT::insert(raw, nt.into());
-    raw = b::D128_SHAREABILITY::insert(raw, sh.bits().into());
-    raw = b::D128_ACCESS_FLAG::insert(raw, af.into());
-    raw = b::D128_LEAF_ALIAS::insert(raw, alias.into());
-    raw = b::D128_SKL::insert(raw, leaf_skl(level).into());
-    raw = b::D128_CONTIGUOUS::insert(raw, contiguous.into());
-    raw = b::D128_PROTECTED_OR_ASSURED_ONLY::insert(raw, protected.into());
-    raw = b::D128_PI_INDEX::insert(raw, permissions.pi.bits().into());
-    raw = b::D128_PO_INDEX::insert(raw, permissions.po.bits().into());
-    raw = b::D128_NS_OR_NSTABLE::insert(raw, ns.into());
+    raw = b::D128_ATTR_INDEX.insert(raw, memory.bits().into());
+    raw = b::D128_NT.insert(raw, nt.into());
+    raw = b::D128_SHAREABILITY.insert(raw, sh.bits().into());
+    raw = b::D128_ACCESS_FLAG.insert(raw, af.into());
+    raw = b::D128_LEAF_ALIAS.insert(raw, alias.into());
+    raw = b::D128_SKL.insert(raw, leaf_skl(level).into());
+    raw = b::D128_CONTIGUOUS.insert(raw, contiguous.into());
+    raw = b::D128_PROTECTED_OR_ASSURED_ONLY.insert(raw, protected.into());
+    raw = b::D128_PI_INDEX.insert(raw, permissions.pi.bits().into());
+    raw = b::D128_PO_INDEX.insert(raw, permissions.po.bits().into());
+    raw = b::D128_NS_OR_NSTABLE.insert(raw, ns.into());
     raw
 }
 
@@ -287,11 +287,11 @@ fn pack_common_table(
     disch: bool,
     protected: bool,
 ) -> u128 {
-    raw = b::D128_NT::insert(raw, nt.into());
-    raw = b::D128_ACCESS_FLAG::insert(raw, af.into());
-    raw = b::D128_SKL::insert(raw, skl.into());
-    raw = b::D128_DISCH::insert(raw, disch.into());
-    raw = b::D128_PROTECTED_OR_ASSURED_ONLY::insert(raw, protected.into());
+    raw = b::D128_NT.insert(raw, nt.into());
+    raw = b::D128_ACCESS_FLAG.insert(raw, af.into());
+    raw = b::D128_SKL.insert(raw, skl.into());
+    raw = b::D128_DISCH.insert(raw, disch.into());
+    raw = b::D128_PROTECTED_OR_ASSURED_ONLY.insert(raw, protected.into());
     raw
 }
 
@@ -337,10 +337,10 @@ fn kind(
     table_res0: u128,
     table_res1: u128,
 ) -> DescriptorKind {
-    if b::D128_VALID::extract(raw) == 0 {
+    if b::D128_VALID.extract(raw) == 0 {
         return DescriptorKind::Invalid;
     }
-    let skl = b::D128_SKL::extract(raw) as u8;
+    let skl = b::D128_SKL.extract(raw) as u8;
     if !skl_supported(granule, skl) {
         return DescriptorKind::Invalid;
     }
@@ -367,7 +367,7 @@ fn kind(
 }
 
 fn raw_skl(raw: u128) -> u8 {
-    b::D128_SKL::extract(raw) as u8
+    b::D128_SKL.extract(raw) as u8
 }
 
 fn next_table_level(raw: u128, level: Level) -> Option<Level> {

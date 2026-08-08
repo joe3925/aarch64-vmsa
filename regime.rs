@@ -55,12 +55,20 @@ pub trait Stage2Regime: TranslationRegime {
     const IPA_SPACE: IpaSpace;
 }
 
-pub type StageOf<R> = <R as TranslationRegime>::Stage;
-pub type LayoutOf<F, R, G> = <F as HasLayout<StageOf<R>, G>>::Layout;
-pub type LeafFieldsOf<F, R, G> =
-    <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::LeafFields;
-pub type TableFieldsOf<F, R, G> =
-    <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::TableFields;
+pub(crate) type RegimeLayout<F, R, G> =
+    <F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout;
+
+pub type RegimeLeafFields<F, R, G> =
+    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
+        <R as TranslationRegime>::Stage,
+        G,
+    >>::LeafFields;
+
+pub type RegimeTableFields<F, R, G> =
+    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
+        <R as TranslationRegime>::Stage,
+        G,
+    >>::TableFields;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegimeValidationError {
@@ -79,12 +87,12 @@ pub fn validate_regime<R: TranslationRegime>(
 
 pub fn validate_regime_format<F, R, G>(features: &VmsaFeatures) -> Result<(), RegimeValidationError>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
     let required = R::REQUIRED_FEATURES
-        .union(<LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::REQUIRED_FEATURES);
+        .union(<RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::REQUIRED_FEATURES);
     if features.verify(required) {
         Ok(())
     } else {

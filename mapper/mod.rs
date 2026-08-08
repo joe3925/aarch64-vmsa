@@ -21,7 +21,9 @@ pub use self::types::{
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout};
-use crate::regime::{LayoutOf, LeafFieldsOf, StageOf, TableFieldsOf, TranslationRegime};
+use crate::regime::{
+    RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime,
+};
 use crate::table::{
     NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrame,
     TableFrameProvider, TableTransition,
@@ -48,7 +50,7 @@ where
 
 impl<F, R, G, A, P> Mapper<F, R, G, A, P, Offline>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
@@ -76,7 +78,7 @@ where
 
 impl<F, R, G, A, P, I> Mapper<F, R, G, A, P, Live<I>>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
@@ -119,13 +121,13 @@ where
 
 impl<F, R, G, A, P, M> Mapper<F, R, G, A, P, M>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
     P: TableFrameProvider<G>,
     M: MapperMode<F, G>,
-    LeafFieldsOf<F, R, G>: Copy,
+    RegimeLeafFields<F, R, G>: Copy,
 {
     pub const fn root(&self) -> RootTable<F, R, G> {
         self.root
@@ -171,8 +173,8 @@ where
         input: WalkInputAddr,
         output: PhysAddr,
         level: Level,
-        leaf_fields: LeafFieldsOf<F, R, G>,
-        table_fields: TableFieldsOf<F, R, G>,
+        leaf_fields: RegimeLeafFields<F, R, G>,
+        table_fields: RegimeTableFields<F, R, G>,
     ) -> Result<MapLeafOutcome, MapperError<A::Error, P::Error>> {
         self.map_leaf_with_plan(
             input,
@@ -188,7 +190,7 @@ where
         input: WalkInputAddr,
         output: PhysAddr,
         level: Level,
-        leaf_fields: LeafFieldsOf<F, R, G>,
+        leaf_fields: RegimeLeafFields<F, R, G>,
         mut planner: T,
     ) -> Result<MapLeafOutcome, MapperError<A::Error, P::Error>>
     where
@@ -208,7 +210,7 @@ where
             self.root.output_addr_bits(),
         )?;
 
-        let leaf_raw = <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::leaf_descriptor(
+        let leaf_raw = <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::leaf_descriptor(
             output,
             level,
             leaf_fields,
@@ -276,7 +278,7 @@ where
                     )?;
 
                     let table_raw =
-                        <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::table_descriptor(
+                        <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::table_descriptor(
                             frame.phys(),
                             transition,
                             plan.into_fields(),
@@ -335,8 +337,8 @@ where
         output_start: PhysAddr,
         len: u64,
         level: Level,
-        leaf_fields: LeafFieldsOf<F, R, G>,
-        table_fields: TableFieldsOf<F, R, G>,
+        leaf_fields: RegimeLeafFields<F, R, G>,
+        table_fields: RegimeTableFields<F, R, G>,
     ) -> Result<MapRangeOutcome, MapperError<A::Error, P::Error>> {
         self.require_leaf_level(level)?;
 
@@ -462,7 +464,7 @@ where
 
     pub(super) fn decode_mapping(
         &self,
-        leaf: WalkLeaf<F, R::Stage, G>,
+        leaf: WalkLeaf<F, R, G>,
     ) -> Result<Mapping<F, R, G>, MapperError<A::Error, P::Error>> {
         let input = leaf.cursor().input();
         let covered_size = mapping_size::<F, G, A::Error, P::Error>(leaf.level())?;
@@ -537,7 +539,7 @@ where
                 .read(index)
                 .ok_or(TableError::EntryIndexOutOfRange { index, entries })?;
 
-            if <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::kind(raw, level)
+            if <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::kind(raw, level)
                 != DescriptorKind::Invalid
             {
                 return Ok(true);

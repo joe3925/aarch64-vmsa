@@ -22,10 +22,10 @@ use super::*;
 
 pub trait AttributeCodec<R, G, Cfg>: DescriptorFormat
 where
-    Self: HasLayout<StageOf<R>, G>,
+    Self: HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    LayoutOf<Self, R, G>: DescriptorLayout<StageOf<R>, G, Format = Self, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
+    RegimeLayout<Self, R, G>: DescriptorLayout<R::Stage, G, Format = Self, LeafFields = Self::RawLeaf, TableFields = Self::RawTable>,
 {
     type SemanticLeaf: Copy;
     type SemanticTable: Copy;

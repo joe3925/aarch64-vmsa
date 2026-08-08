@@ -2,7 +2,9 @@ use crate::address::PhysAddr;
 use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorLayout;
 use crate::descriptor::{DescriptorFormat, DescriptorKind, HasLayout};
-use crate::regime::{StageOf, TranslationRegime};
+use crate::regime::{
+    RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime,
+};
 use crate::table::{
     AccessError, NextTable, RootTable, TableAccess, TableAccessLocation, TableAddressError,
     TableCursor, TableGeometry, TablePhysAddr, TableWalkPath, TranslationTable,
@@ -49,14 +51,6 @@ impl WalkInputAddr {
         self.0
     }
 }
-
-pub type WalkLayoutOf<F, S, G> = <F as HasLayout<S, G>>::Layout;
-
-pub type WalkLeafFieldsOf<F, S, G> =
-    <WalkLayoutOf<F, S, G> as DescriptorLayout<S, G>>::LeafFields;
-
-pub type WalkTableFieldsOf<F, S, G> =
-    <WalkLayoutOf<F, S, G> as DescriptorLayout<S, G>>::TableFields;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WalkLeafKind {
@@ -183,10 +177,10 @@ where
 }
 
 #[derive(Clone, Copy)]
-pub struct WalkLeaf<F, P, G>
+pub struct WalkLeaf<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     cursor: WalkCursor<F, G>,
@@ -197,13 +191,13 @@ where
     output_base: PhysAddr,
     output: PhysAddr,
     kind: WalkLeafKind,
-    fields: WalkLeafFieldsOf<F, P, G>,
+    fields: RegimeLeafFields<F, R, G>,
 }
 
-impl<F, P, G> WalkLeaf<F, P, G>
+impl<F, R, G> WalkLeaf<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     pub const fn cursor(&self) -> WalkCursor<F, G> {
@@ -238,16 +232,16 @@ where
         self.kind
     }
 
-    pub const fn fields(&self) -> &WalkLeafFieldsOf<F, P, G> {
+    pub const fn fields(&self) -> &RegimeLeafFields<F, R, G> {
         &self.fields
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct WalkTable<F, P, G>
+pub struct WalkTable<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     cursor: WalkCursor<F, G>,
@@ -258,13 +252,13 @@ where
     next: NextTable<F, G>,
     next_cursor: WalkCursor<F, G>,
     next_location: TableAccessLocation<F, G>,
-    fields: WalkTableFieldsOf<F, P, G>,
+    fields: RegimeTableFields<F, R, G>,
 }
 
-impl<F, P, G> WalkTable<F, P, G>
+impl<F, R, G> WalkTable<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     pub const fn cursor(&self) -> WalkCursor<F, G> {
@@ -303,32 +297,32 @@ where
         self.next_location
     }
 
-    pub const fn fields(&self) -> &WalkTableFieldsOf<F, P, G> {
+    pub const fn fields(&self) -> &RegimeTableFields<F, R, G> {
         &self.fields
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum WalkStep<F, P, G>
+pub enum WalkStep<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     Invalid(WalkInvalid<F, G>),
-    Leaf(WalkLeaf<F, P, G>),
-    Table(WalkTable<F, P, G>),
+    Leaf(WalkLeaf<F, R, G>),
+    Table(WalkTable<F, R, G>),
 }
 
 #[derive(Clone, Copy)]
-pub enum WalkOutcome<F, P, G>
+pub enum WalkOutcome<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<P, G>,
-    P: TranslationStage,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
     G: TranslationGranule,
 {
     Invalid(WalkInvalid<F, G>),
-    Leaf(WalkLeaf<F, P, G>),
+    Leaf(WalkLeaf<F, R, G>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -374,7 +368,7 @@ impl<A> From<WalkCursorError> for WalkError<A> {
 
 pub struct Walker<F, R, G, A>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccess<F, G>,
@@ -385,7 +379,7 @@ where
 
 impl<F, R, G, A> Walker<F, R, G, A>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccess<F, G>,
@@ -422,7 +416,7 @@ where
     pub fn step(
         &self,
         cursor: WalkCursor<F, G>,
-    ) -> Result<WalkStep<F, StageOf<R>, G>, WalkError<A::Error>> {
+    ) -> Result<WalkStep<F, R, G>, WalkError<A::Error>> {
         let location = cursor.location()?;
         let table = self.access.table_at(location).map_err(WalkError::Access)?;
         let entry_index = cursor.entry_index()?;
@@ -433,7 +427,7 @@ where
                 entries: table.entries(),
             })?;
 
-        match <WalkLayoutOf<F, StageOf<R>, G> as DescriptorLayout<StageOf<R>, G>>::kind(
+        match <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::kind(
             raw,
             cursor.level(),
         ) {
@@ -456,7 +450,7 @@ where
     pub fn walk(
         &self,
         input: WalkInputAddr,
-    ) -> Result<WalkOutcome<F, StageOf<R>, G>, WalkError<A::Error>> {
+    ) -> Result<WalkOutcome<F, R, G>, WalkError<A::Error>> {
         let cursor = self.cursor(input)?;
 
         self.walk_from_cursor(cursor)
@@ -465,7 +459,7 @@ where
     pub fn walk_from_cursor(
         &self,
         mut cursor: WalkCursor<F, G>,
-    ) -> Result<WalkOutcome<F, StageOf<R>, G>, WalkError<A::Error>> {
+    ) -> Result<WalkOutcome<F, R, G>, WalkError<A::Error>> {
         loop {
             match self.step(cursor)? {
                 WalkStep::Invalid(invalid) => return Ok(WalkOutcome::Invalid(invalid)),
@@ -478,7 +472,7 @@ where
     pub fn translate(
         &self,
         input: WalkInputAddr,
-    ) -> Result<Option<WalkLeaf<F, StageOf<R>, G>>, WalkError<A::Error>> {
+    ) -> Result<Option<WalkLeaf<F, R, G>>, WalkError<A::Error>> {
         match self.walk(input)? {
             WalkOutcome::Invalid(_) => Ok(None),
             WalkOutcome::Leaf(leaf) => Ok(Some(leaf)),
@@ -492,11 +486,11 @@ where
         raw: F::Raw,
         entry_index: usize,
         kind: WalkLeafKind,
-    ) -> Result<WalkStep<F, StageOf<R>, G>, WalkError<A::Error>> {
+    ) -> Result<WalkStep<F, R, G>, WalkError<A::Error>> {
         let level = cursor.level();
 
         let output_base =
-            <WalkLayoutOf<F, StageOf<R>, G> as DescriptorLayout<StageOf<R>, G>>::output_address(
+            <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::output_address(
                 raw, level,
             );
         let offset = TableGeometry::<F, G>::offset_at_level_raw(cursor.input().raw(), level)
@@ -508,7 +502,7 @@ where
             },
         )?);
         let fields =
-            <WalkLayoutOf<F, StageOf<R>, G> as DescriptorLayout<StageOf<R>, G>>::decode_leaf_fields(
+            <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::decode_leaf_fields(
                 raw, level,
             );
 
@@ -531,7 +525,7 @@ where
         location: TableAccessLocation<F, G>,
         raw: F::Raw,
         entry_index: usize,
-    ) -> Result<WalkStep<F, StageOf<R>, G>, WalkError<A::Error>> {
+    ) -> Result<WalkStep<F, R, G>, WalkError<A::Error>> {
         let level = cursor.level();
 
         if level == F::FINAL_LEVEL {
@@ -539,11 +533,11 @@ where
         }
 
         let fields =
-            <WalkLayoutOf<F, StageOf<R>, G> as DescriptorLayout<StageOf<R>, G>>::decode_table_fields(
+            <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::decode_table_fields(
                 raw, level,
             );
         let next_descriptor =
-            <WalkLayoutOf<F, StageOf<R>, G> as DescriptorLayout<StageOf<R>, G>>::next_table(
+            <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::next_table(
                 raw, level,
             )
             .ok_or(WalkError::TableDescriptorAtFinalLevel { level })?;

@@ -1,21 +1,19 @@
-#![allow(non_camel_case_types)]
-
 use super::{Field, checked_field_mask, vmsa64};
 
-pub type LPA2_DS_ADDRESS_LOW = Field<12, 38>;
-pub type LPA2_DS_ADDRESS_HIGH = Field<8, 2>;
-pub type LPA2_64K_ADDRESS_LOW = Field<16, 32>;
-pub type LPA2_64K_ADDRESS_HIGH = Field<12, 4>;
-pub type LPA2_DS_ACCESS_FLAG = Field<10, 1>;
-pub type LPA2_DS_STAGE1_ALIAS = Field<11, 1>;
+pub const LPA2_DS_ADDRESS_LOW: Field<12, 38> = Field;
+pub const LPA2_DS_ADDRESS_HIGH: Field<8, 2> = Field;
+pub const LPA2_64K_ADDRESS_LOW: Field<16, 32> = Field;
+pub const LPA2_64K_ADDRESS_HIGH: Field<12, 4> = Field;
+pub const LPA2_DS_ACCESS_FLAG: Field<10, 1> = Field;
+pub const LPA2_DS_STAGE1_ALIAS: Field<11, 1> = Field;
 
 pub const DS_ADDRESS_FIELD_MASK: u128 = checked_field_mask(
     64,
-    &[LPA2_DS_ADDRESS_LOW::mask(), LPA2_DS_ADDRESS_HIGH::mask()],
+    &[LPA2_DS_ADDRESS_LOW.mask(), LPA2_DS_ADDRESS_HIGH.mask()],
 );
 pub const ADDRESS_64K_FIELD_MASK: u128 = checked_field_mask(
     64,
-    &[LPA2_64K_ADDRESS_LOW::mask(), LPA2_64K_ADDRESS_HIGH::mask()],
+    &[LPA2_64K_ADDRESS_LOW.mask(), LPA2_64K_ADDRESS_HIGH.mask()],
 );
 
 pub mod ds_stage1_leaf {

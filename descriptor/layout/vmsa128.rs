@@ -1,5 +1,3 @@
-#![allow(non_camel_case_types)]
-
 use super::descriptor_layout;
 
 descriptor_layout! {
@@ -42,4 +40,4 @@ descriptor_layout! {
     }
 }
 
-pub const ADDRESS_FIELD_MASK: u128 = D128_OUTPUT_ADDRESS::mask();
+pub const ADDRESS_FIELD_MASK: u128 = D128_OUTPUT_ADDRESS.mask();

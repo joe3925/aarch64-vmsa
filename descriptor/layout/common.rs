@@ -9,7 +9,7 @@ impl<const LSB: u32, const WIDTH: u32> Field<LSB, WIDTH> {
         assert!(LSB + WIDTH <= u128::BITS, "field exceeds descriptor width");
     };
 
-    pub const fn value_mask() -> u128 {
+    pub const fn value_mask(self) -> u128 {
         let () = Self::VALID;
         if WIDTH == u128::BITS {
             u128::MAX
@@ -18,23 +18,23 @@ impl<const LSB: u32, const WIDTH: u32> Field<LSB, WIDTH> {
         }
     }
 
-    pub const fn mask() -> u128 {
+    pub const fn mask(self) -> u128 {
         let () = Self::VALID;
-        Self::value_mask() << LSB
+        self.value_mask() << LSB
     }
 
-    pub const fn extract(raw: u128) -> u128 {
+    pub const fn extract(self, raw: u128) -> u128 {
         let () = Self::VALID;
-        (raw >> LSB) & Self::value_mask()
+        (raw >> LSB) & self.value_mask()
     }
 
-    pub const fn insert(raw: u128, value: u128) -> u128 {
+    pub const fn insert(self, raw: u128, value: u128) -> u128 {
         let () = Self::VALID;
         debug_assert!(
-            value & !Self::value_mask() == 0,
+            value & !self.value_mask() == 0,
             "field value is out of range"
         );
-        (raw & !Self::mask()) | ((value & Self::value_mask()) << LSB)
+        (raw & !self.mask()) | ((value & self.value_mask()) << LSB)
     }
 }
 
@@ -139,14 +139,15 @@ macro_rules! descriptor_field_table {
         }
     ) => {
         $(
-            $field_vis type $field = $crate::descriptor::layout::Field<$lsb, $width>;
+            $field_vis const $field: $crate::descriptor::layout::Field<$lsb, $width> =
+                $crate::descriptor::layout::Field;
         )*
 
         const _: () = {
             $(
                 $crate::descriptor::layout::validate_field(
                     $bits,
-                    $crate::descriptor::layout::Field::<$lsb, $width>::mask(),
+                    $field.mask(),
                     $views,
                     $all_views,
                 );
@@ -174,7 +175,7 @@ macro_rules! descriptor_view {
             const USED_MASK: u128 = $crate::descriptor::layout::checked_view_mask(
                 $bits,
                 $view_tag,
-                &[$(($field::mask(), $views)),*],
+                &[$(($field.mask(), $views)),*],
             );
             pub const RES0_MASK: u128 =
                 $crate::descriptor::layout::word_mask($bits) & !USED_MASK;
@@ -183,7 +184,7 @@ macro_rules! descriptor_view {
                     $crate::descriptor::layout::checked_res1_mask(
                         USED_MASK,
                         $bits,
-                        &[$($res1::mask()),*],
+                        &[$($res1.mask()),*],
                     );
             )?
         }
@@ -225,7 +226,7 @@ macro_rules! descriptor_view {
 /// The macro also makes the private `ALL` tag. Use `ALL` to select all the
 /// specified views.
 ///
-/// Each item in `fields` makes one [`Field<LSB, WIDTH>`] type alias. The first
+/// Each item in `fields` makes one [`Field<LSB, WIDTH>`] constant. The first
 /// number is the least-significant bit. The second number is the field width.
 ///
 /// The expression after `in` selects the applicable views. Use one view tag for

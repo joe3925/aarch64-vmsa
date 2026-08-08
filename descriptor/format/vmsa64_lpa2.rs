@@ -43,30 +43,30 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
         let raw128 = raw as u128;
         let ds = uses_ds(G::KIND);
         RawVmsa64Stage1LeafAttrs {
-            attr_index: ThreeBit::from_masked(b::VMSA64_STAGE1_ATTR_INDEX::extract(raw128)),
-            ns: b::VMSA64_STAGE1_NS::extract(raw128) != 0,
-            ap: LeafAp::from_masked(b::VMSA64_STAGE1_AP::extract(raw128)),
+            attr_index: ThreeBit::from_masked(b::VMSA64_STAGE1_ATTR_INDEX.extract(raw128)),
+            ns: b::VMSA64_STAGE1_NS.extract(raw128) != 0,
+            ap: LeafAp::from_masked(b::VMSA64_STAGE1_AP.extract(raw128)),
             shareability: if ds {
                 RawShareability::from_masked(0)
             } else {
-                RawShareability::from_masked(b::VMSA64_SHAREABILITY::extract(raw128))
+                RawShareability::from_masked(b::VMSA64_SHAREABILITY.extract(raw128))
             },
             access_flag: if ds {
-                lpa2::LPA2_DS_ACCESS_FLAG::extract(raw128) != 0
+                lpa2::LPA2_DS_ACCESS_FLAG.extract(raw128) != 0
             } else {
-                b::VMSA64_ACCESS_FLAG::extract(raw128) != 0
+                b::VMSA64_ACCESS_FLAG.extract(raw128) != 0
             },
             alias_bit: if ds {
-                lpa2::LPA2_DS_STAGE1_ALIAS::extract(raw128) != 0
+                lpa2::LPA2_DS_STAGE1_ALIAS.extract(raw128) != 0
             } else {
-                b::VMSA64_STAGE1_ALIAS::extract(raw128) != 0
+                b::VMSA64_STAGE1_ALIAS.extract(raw128) != 0
             },
-            dirty_bit_modifier: b::VMSA64_DIRTY_BIT_MODIFIER::extract(raw128) != 0,
-            contiguous: b::VMSA64_CONTIGUOUS::extract(raw128) != 0,
-            privileged_execute_never: b::VMSA64_PXN::extract(raw128) != 0,
-            unprivileged_execute_never: b::VMSA64_UXN::extract(raw128) != 0,
-            guarded: b::VMSA64_GUARDED::extract(raw128) != 0,
-            software: FourBit::from_masked(b::VMSA64_SOFTWARE::extract(raw128)),
+            dirty_bit_modifier: b::VMSA64_DIRTY_BIT_MODIFIER.extract(raw128) != 0,
+            contiguous: b::VMSA64_CONTIGUOUS.extract(raw128) != 0,
+            privileged_execute_never: b::VMSA64_PXN.extract(raw128) != 0,
+            unprivileged_execute_never: b::VMSA64_UXN.extract(raw128) != 0,
+            guarded: b::VMSA64_GUARDED.extract(raw128) != 0,
+            software: FourBit::from_masked(b::VMSA64_SOFTWARE.extract(raw128)),
         }
     }
     fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
@@ -80,16 +80,16 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
         require_leaf_level::<G>(level)?;
         let mut raw = 0;
         raw |= encode_address::<G>(output_pa) as u128;
-        raw = b::VMSA64_STAGE1_ATTR_INDEX::insert(raw, f.attr_index.bits().into());
-        raw = b::VMSA64_STAGE1_NS::insert(raw, f.ns.into());
-        raw = b::VMSA64_STAGE1_AP::insert(raw, f.ap.bits().into());
+        raw = b::VMSA64_STAGE1_ATTR_INDEX.insert(raw, f.attr_index.bits().into());
+        raw = b::VMSA64_STAGE1_NS.insert(raw, f.ns.into());
+        raw = b::VMSA64_STAGE1_AP.insert(raw, f.ap.bits().into());
         if uses_ds(G::KIND) {
-            raw = lpa2::LPA2_DS_ACCESS_FLAG::insert(raw, f.access_flag.into());
-            raw = lpa2::LPA2_DS_STAGE1_ALIAS::insert(raw, f.alias_bit.into());
+            raw = lpa2::LPA2_DS_ACCESS_FLAG.insert(raw, f.access_flag.into());
+            raw = lpa2::LPA2_DS_STAGE1_ALIAS.insert(raw, f.alias_bit.into());
         } else {
-            raw = b::VMSA64_SHAREABILITY::insert(raw, f.shareability.bits().into());
-            raw = b::VMSA64_ACCESS_FLAG::insert(raw, f.access_flag.into());
-            raw = b::VMSA64_STAGE1_ALIAS::insert(raw, f.alias_bit.into());
+            raw = b::VMSA64_SHAREABILITY.insert(raw, f.shareability.bits().into());
+            raw = b::VMSA64_ACCESS_FLAG.insert(raw, f.access_flag.into());
+            raw = b::VMSA64_STAGE1_ALIAS.insert(raw, f.alias_bit.into());
         }
         raw = finish_stage1_leaf(raw, f, leaf_kind_bits(G::KIND, level));
         check_reserved(
@@ -107,10 +107,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
         require_step_by_one_transition(transition)?;
         let mut raw = 0;
         raw |= encode_address::<G>(table_pa) as u128;
-        raw = b::VMSA64_PXN_TABLE::insert(raw, f.privileged_execute_never_limit.into());
-        raw = b::VMSA64_UXN_TABLE::insert(raw, f.unprivileged_execute_never_limit.into());
-        raw = b::VMSA64_AP_TABLE::insert(raw, f.ap_table.bits().into());
-        raw = b::VMSA64_NS_TABLE::insert(raw, f.ns_table.into());
+        raw = b::VMSA64_PXN_TABLE.insert(raw, f.privileged_execute_never_limit.into());
+        raw = b::VMSA64_UXN_TABLE.insert(raw, f.unprivileged_execute_never_limit.into());
+        raw = b::VMSA64_AP_TABLE.insert(raw, f.ap_table.bits().into());
+        raw = b::VMSA64_NS_TABLE.insert(raw, f.ns_table.into());
         raw = finish_table(raw, f.software);
         check_reserved(raw, table_res0(G::KIND, true), b::stage1_table::RES1_MASK)?;
         Ok(raw as u64)
@@ -134,22 +134,22 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G>
     fn decode_leaf_fields(raw: u64, _level: Level) -> Self::LeafFields {
         let raw128 = raw as u128;
         RawVmsa64Stage2LeafAttrs {
-            mem_attr: FourBit::from_masked(b::VMSA64_STAGE2_MEM_ATTR::extract(raw128)),
-            access: Stage2Ap::from_masked(b::VMSA64_STAGE2_AP::extract(raw128)),
+            mem_attr: FourBit::from_masked(b::VMSA64_STAGE2_MEM_ATTR.extract(raw128)),
+            access: Stage2Ap::from_masked(b::VMSA64_STAGE2_AP.extract(raw128)),
             shareability: if uses_ds(G::KIND) {
                 RawShareability::from_masked(0)
             } else {
-                RawShareability::from_masked(b::VMSA64_SHAREABILITY::extract(raw128))
+                RawShareability::from_masked(b::VMSA64_SHAREABILITY.extract(raw128))
             },
             access_flag: if uses_ds(G::KIND) {
-                lpa2::LPA2_DS_ACCESS_FLAG::extract(raw128) != 0
+                lpa2::LPA2_DS_ACCESS_FLAG.extract(raw128) != 0
             } else {
-                b::VMSA64_ACCESS_FLAG::extract(raw128) != 0
+                b::VMSA64_ACCESS_FLAG.extract(raw128) != 0
             },
-            dirty_bit_modifier: b::VMSA64_DIRTY_BIT_MODIFIER::extract(raw128) != 0,
-            contiguous: b::VMSA64_CONTIGUOUS::extract(raw128) != 0,
-            execute_never: Stage2ExecuteNever::from_masked(b::VMSA64_STAGE2_XN::extract(raw128)),
-            software: FourBit::from_masked(b::VMSA64_SOFTWARE::extract(raw128)),
+            dirty_bit_modifier: b::VMSA64_DIRTY_BIT_MODIFIER.extract(raw128) != 0,
+            contiguous: b::VMSA64_CONTIGUOUS.extract(raw128) != 0,
+            execute_never: Stage2ExecuteNever::from_masked(b::VMSA64_STAGE2_XN.extract(raw128)),
+            software: FourBit::from_masked(b::VMSA64_SOFTWARE.extract(raw128)),
         }
     }
     fn decode_table_fields(raw: u64, _level: Level) -> Self::TableFields {
@@ -163,13 +163,13 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G>
         require_leaf_level::<G>(level)?;
         let mut raw = 0;
         raw |= encode_address::<G>(output_pa) as u128;
-        raw = b::VMSA64_STAGE2_MEM_ATTR::insert(raw, f.mem_attr.bits().into());
-        raw = b::VMSA64_STAGE2_AP::insert(raw, f.access.bits().into());
+        raw = b::VMSA64_STAGE2_MEM_ATTR.insert(raw, f.mem_attr.bits().into());
+        raw = b::VMSA64_STAGE2_AP.insert(raw, f.access.bits().into());
         if uses_ds(G::KIND) {
-            raw = lpa2::LPA2_DS_ACCESS_FLAG::insert(raw, f.access_flag.into());
+            raw = lpa2::LPA2_DS_ACCESS_FLAG.insert(raw, f.access_flag.into());
         } else {
-            raw = b::VMSA64_SHAREABILITY::insert(raw, f.shareability.bits().into());
-            raw = b::VMSA64_ACCESS_FLAG::insert(raw, f.access_flag.into());
+            raw = b::VMSA64_SHAREABILITY.insert(raw, f.shareability.bits().into());
+            raw = b::VMSA64_ACCESS_FLAG.insert(raw, f.access_flag.into());
         }
         raw = finish_stage2_leaf(raw, f, leaf_kind_bits(G::KIND, level));
         check_reserved(

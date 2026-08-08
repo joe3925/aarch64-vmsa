@@ -1,6 +1,6 @@
 use crate::address::{Level, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
-use crate::regime::{LayoutOf, StageOf, TableFieldsOf, TranslationRegime};
+use crate::regime::{RegimeLayout, RegimeTableFields, TranslationRegime};
 use crate::table::{AccessError, TableShape, TableTransition};
 use crate::translation::walk::WalkInputAddr;
 
@@ -74,14 +74,14 @@ where
 
 pub trait TablePlanProvider<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
     fn plan_table(
         &mut self,
         context: TablePlanContext<F, G>,
-    ) -> Result<TablePlan<F, G, TableFieldsOf<F, R, G>>, AccessError>;
+    ) -> Result<TablePlan<F, G, RegimeTableFields<F, R, G>>, AccessError>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -95,16 +95,16 @@ impl<A> StepByOneTablePlan<A> {
     }
 }
 
-impl<F, R, G> TablePlanProvider<F, R, G> for StepByOneTablePlan<TableFieldsOf<F, R, G>>
+impl<F, R, G> TablePlanProvider<F, R, G> for StepByOneTablePlan<RegimeTableFields<F, R, G>>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
     fn plan_table(
         &mut self,
         context: TablePlanContext<F, G>,
-    ) -> Result<TablePlan<F, G, TableFieldsOf<F, R, G>>, AccessError> {
+    ) -> Result<TablePlan<F, G, RegimeTableFields<F, R, G>>, AccessError> {
         let parent = context.parent();
         let child_level = parent.level().next();
         let child_shape = TableShape::new(child_level, 1)?;
@@ -129,16 +129,16 @@ impl<A> BoundedSklTablePlan<A> {
     }
 }
 
-impl<F, R, G> TablePlanProvider<F, R, G> for BoundedSklTablePlan<TableFieldsOf<F, R, G>>
+impl<F, R, G> TablePlanProvider<F, R, G> for BoundedSklTablePlan<RegimeTableFields<F, R, G>>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
     fn plan_table(
         &mut self,
         context: TablePlanContext<F, G>,
-    ) -> Result<TablePlan<F, G, TableFieldsOf<F, R, G>>, AccessError> {
+    ) -> Result<TablePlan<F, G, RegimeTableFields<F, R, G>>, AccessError> {
         choose_table_plan::<F, R, G, _>(context, self.max_table_bytes, self.fields)
     }
 }
@@ -154,16 +154,16 @@ impl<A> MaxSklTablePlan<A> {
     }
 }
 
-impl<F, R, G> TablePlanProvider<F, R, G> for MaxSklTablePlan<TableFieldsOf<F, R, G>>
+impl<F, R, G> TablePlanProvider<F, R, G> for MaxSklTablePlan<RegimeTableFields<F, R, G>>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
     fn plan_table(
         &mut self,
         context: TablePlanContext<F, G>,
-    ) -> Result<TablePlan<F, G, TableFieldsOf<F, R, G>>, AccessError> {
+    ) -> Result<TablePlan<F, G, RegimeTableFields<F, R, G>>, AccessError> {
         choose_table_plan::<F, R, G, _>(context, u64::MAX, self.fields)
     }
 }
@@ -174,7 +174,7 @@ fn choose_table_plan<F, R, G, A>(
     fields: A,
 ) -> Result<TablePlan<F, G, A>, AccessError>
 where
-    F: DescriptorFormat + HasLayout<StageOf<R>, G>,
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: Copy,
@@ -208,7 +208,7 @@ where
         let layout = child_shape.alloc_layout()?;
 
         if layout.bytes() <= max_table_bytes
-            && <LayoutOf<F, R, G> as DescriptorLayout<StageOf<R>, G>>::supports_table_transition(
+            && <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::supports_table_transition(
                 transition,
             )
         {
