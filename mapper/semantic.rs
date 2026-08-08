@@ -5,7 +5,7 @@ use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider};
 use crate::translation::walk::WalkInputAddr;
 
-use super::{MapLeafOutcome, Mapper, MapperError, MapperMode};
+use super::{MapLeafOutcome, Mapper, MapperError, MapperMode, Mapping};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SemanticMapperError<AccessErrorKind, FrameErrorKind> {
@@ -41,6 +41,21 @@ where
             .map_err(SemanticMapperError::Attribute)?;
         self.map_leaf(input, output, level, leaf, table)
             .map_err(SemanticMapperError::Mapper)
+    }
+}
+
+impl<F, R, G> Mapping<F, R, G>
+where
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
+    G: TranslationGranule,
+{
+    /// Decodes this mapping's raw leaf fields using the supplied architectural configuration.
+    pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticLeafAttrs<F, R>, AttrError>
+    where
+        F: AttributeCodec<R, G, Cfg>,
+    {
+        <F as AttributeCodec<R, G, Cfg>>::decode_leaf(config, self.level(), *self.fields())
     }
 }
 

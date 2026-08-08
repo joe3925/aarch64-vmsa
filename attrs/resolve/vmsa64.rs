@@ -1,12 +1,11 @@
 use crate::address::{Granule4KiB, Granule16KiB, Granule64KiB, Level, TranslationGranule};
 use crate::attrs::{
     AttrError, FourBit, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
-    RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, ResolvedStage1LeafAttrs,
-    ResolvedStage1TableAttrs, ResolvedStage2LeafAttrs, SemanticLeafAttrs, SemanticStage1LeafAttrs,
-    SemanticStage1TableAttrs, SemanticStage2LeafAttrs, SemanticTableAttrs,
+    RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, SemanticLeafAttrs,
+    SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs, SemanticTableAttrs,
     SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-    SoftwareMetadata, Stage2LeafPermissions, Stage2PasContext, Stage2PermissionModel, ThreeBit,
+    SoftwareMetadata, Stage2LeafPermissions, Stage2PasContext, Stage2PermissionModel,
 };
 use crate::descriptor::{Vmsa64, Vmsa64Lpa2};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, Stage1Regime, Stage2Regime};
@@ -57,80 +56,6 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ResolvedVmsa64Stage1LeafControls {
-    pub shareability: RawShareability,
-    pub access_flag: bool,
-    pub alias_bit: bool,
-    pub dirty_bit_modifier: bool,
-    pub contiguous: bool,
-    pub guarded: bool,
-    pub software: FourBit,
-}
-
-type ResolvedVmsa64Stage1LeafAttrs = ResolvedStage1LeafAttrs<
-    ThreeBit,
-    RawStage1DirectLeafPermissions,
-    RawStage1LeafPas,
-    ResolvedVmsa64Stage1LeafControls,
->;
-
-fn resolve_vmsa64_stage1_leaf_resolved<P, A, C>(
-    config: &C,
-    attrs: SemanticStage1LeafAttrs<
-        P::LeafPermissions,
-        A::LeafAttr,
-        SemanticVmsa64Stage1LeafControls,
-    >,
-) -> Result<ResolvedVmsa64Stage1LeafAttrs, AttrError>
-where
-    P: Stage1DirectPermissionModel,
-    A: Stage1PasResolver,
-    C: Stage1MemoryConfig,
-{
-    let memory = Vmsa64Stage1Memory::resolve(config, attrs.memory)?;
-    let permissions = P::encode_leaf(attrs.permissions)?;
-    let pas = A::resolve_leaf(attrs.pas)?;
-    let alias_bit = resolve_stage1_alias::<P, A>(attrs.controls.global, pas)?;
-
-    Ok(ResolvedStage1LeafAttrs {
-        memory,
-        permissions,
-        pas,
-        controls: ResolvedVmsa64Stage1LeafControls {
-            shareability: RawShareability::from_bits(attrs.controls.shareability as u8)?,
-            access_flag: attrs.controls.access_flag,
-            alias_bit,
-            dirty_bit_modifier: matches!(
-                attrs.controls.dirty_management,
-                crate::attrs::DirtyBitManagement::HardwareManaged
-            ),
-            contiguous: attrs.controls.contiguous,
-            guarded: attrs.controls.guarded,
-            software: software_four(attrs.controls.software)?,
-        },
-    })
-}
-
-const fn raw_vmsa64_stage1_leaf(
-    resolved: ResolvedVmsa64Stage1LeafAttrs,
-) -> RawVmsa64Stage1LeafAttrs {
-    RawVmsa64Stage1LeafAttrs {
-        attr_index: resolved.memory,
-        ns: resolved.pas.ns,
-        ap: resolved.permissions.ap,
-        shareability: resolved.controls.shareability,
-        access_flag: resolved.controls.access_flag,
-        alias_bit: resolved.controls.alias_bit,
-        dirty_bit_modifier: resolved.controls.dirty_bit_modifier,
-        contiguous: resolved.controls.contiguous,
-        privileged_execute_never: resolved.permissions.privileged_execute_never,
-        unprivileged_execute_never: resolved.permissions.unprivileged_execute_never,
-        guarded: resolved.controls.guarded,
-        software: resolved.controls.software,
-    }
-}
-
 fn encode_stage1_leaf_core<P, A, C>(
     config: &C,
     attrs: SemanticStage1LeafAttrs<
@@ -144,7 +69,42 @@ where
     A: Stage1PasResolver,
     C: Stage1MemoryConfig,
 {
-    resolve_vmsa64_stage1_leaf_resolved::<P, A, C>(config, attrs).map(raw_vmsa64_stage1_leaf)
+    let attr_index = Vmsa64Stage1Memory::resolve(config, attrs.memory)?;
+    let permissions = P::encode_leaf(attrs.permissions)?;
+    let pas = A::resolve_leaf(attrs.pas)?;
+    let alias_bit = if A::USES_NSE {
+        if !attrs.controls.global {
+            return Err(AttrError::ConflictingSemanticAttributes);
+        }
+        pas.nse
+    } else if P::SUPPORTS_EL0 {
+        if pas.nse {
+            return Err(AttrError::InvalidOutputAddressSpace);
+        }
+        !attrs.controls.global
+    } else if attrs.controls.global && !pas.nse {
+        false
+    } else {
+        return Err(AttrError::ConflictingSemanticAttributes);
+    };
+
+    Ok(RawVmsa64Stage1LeafAttrs {
+        attr_index,
+        ns: pas.ns,
+        ap: permissions.ap,
+        shareability: RawShareability::from_bits(attrs.controls.shareability as u8)?,
+        access_flag: attrs.controls.access_flag,
+        alias_bit,
+        dirty_bit_modifier: matches!(
+            attrs.controls.dirty_management,
+            crate::attrs::DirtyBitManagement::HardwareManaged
+        ),
+        contiguous: attrs.controls.contiguous,
+        privileged_execute_never: permissions.privileged_execute_never,
+        unprivileged_execute_never: permissions.unprivileged_execute_never,
+        guarded: attrs.controls.guarded,
+        software: software_four(attrs.controls.software)?,
+    })
 }
 
 fn decode_stage1_leaf_core<P, A, C>(
@@ -159,7 +119,15 @@ where
     A: Stage1PasResolver,
     C: Stage1MemoryConfig,
 {
-    let (nse, global) = decode_stage1_alias::<P, A>(raw.alias_bit)?;
+    let (nse, global) = if A::USES_NSE {
+        (raw.alias_bit, true)
+    } else if P::SUPPORTS_EL0 {
+        (false, !raw.alias_bit)
+    } else if raw.alias_bit {
+        return Err(AttrError::ConflictingSemanticAttributes);
+    } else {
+        (false, true)
+    };
     Ok(SemanticStage1LeafAttrs {
         memory: Vmsa64Stage1Memory::decode(config, raw.attr_index)?,
         permissions: P::decode_leaf(RawStage1DirectLeafPermissions {
@@ -184,43 +152,6 @@ where
     })
 }
 
-type ResolvedVmsa64Stage1TableAttrs =
-    ResolvedStage1TableAttrs<RawStage1TablePermissionLimits, bool, FourBit>;
-
-fn resolve_vmsa64_stage1_table_resolved<P, A>(
-    attrs: SemanticStage1TableAttrs<
-        P::TablePermissionLimits,
-        A::TableAttr,
-        SemanticVmsa64Stage1TableControls,
-    >,
-) -> Result<ResolvedVmsa64Stage1TableAttrs, AttrError>
-where
-    P: Stage1DirectPermissionModel,
-    A: Stage1PasResolver,
-{
-    let ns_table = A::resolve_table(attrs.pas)?;
-    debug_assert_eq!(ns_table.is_some(), A::USES_NSTABLE);
-    Ok(ResolvedStage1TableAttrs {
-        permission_limits: P::encode_table(attrs.permission_limits)?,
-        pas: ns_table.unwrap_or(false),
-        controls: software_four(attrs.controls.software)?,
-    })
-}
-
-const fn raw_vmsa64_stage1_table(
-    resolved: ResolvedVmsa64Stage1TableAttrs,
-) -> RawVmsa64Stage1TableAttrs {
-    RawVmsa64Stage1TableAttrs {
-        privileged_execute_never_limit: resolved.permission_limits.privileged_execute_never_limit,
-        unprivileged_execute_never_limit: resolved
-            .permission_limits
-            .unprivileged_execute_never_limit,
-        ap_table: resolved.permission_limits.ap_table,
-        ns_table: resolved.pas,
-        software: resolved.controls,
-    }
-}
-
 fn encode_stage1_table_core<P, A>(
     attrs: SemanticStage1TableAttrs<
         P::TablePermissionLimits,
@@ -232,7 +163,16 @@ where
     P: Stage1DirectPermissionModel,
     A: Stage1PasResolver,
 {
-    resolve_vmsa64_stage1_table_resolved::<P, A>(attrs).map(raw_vmsa64_stage1_table)
+    let ns_table = A::resolve_table(attrs.pas)?;
+    debug_assert_eq!(ns_table.is_some(), A::USES_NSTABLE);
+    let permission_limits = P::encode_table(attrs.permission_limits)?;
+    Ok(RawVmsa64Stage1TableAttrs {
+        privileged_execute_never_limit: permission_limits.privileged_execute_never_limit,
+        unprivileged_execute_never_limit: permission_limits.unprivileged_execute_never_limit,
+        ap_table: permission_limits.ap_table,
+        ns_table: ns_table.unwrap_or(false),
+        software: software_four(attrs.controls.software)?,
+    })
 }
 
 fn decode_stage1_table_core<P, A>(
@@ -348,91 +288,6 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ResolvedVmsa64Stage2LeafControls {
-    pub shareability: RawShareability,
-    pub access_flag: bool,
-    pub dirty_bit_modifier: bool,
-    pub contiguous: bool,
-    pub software: FourBit,
-}
-
-type ResolvedVmsa64Stage2LeafAttrs = ResolvedStage2LeafAttrs<
-    FourBit,
-    (crate::attrs::Stage2Ap, crate::attrs::Stage2ExecuteNever),
-    bool,
-    ResolvedVmsa64Stage2LeafControls,
->;
-
-fn resolve_vmsa64_stage2_leaf_resolved<P, A, C>(
-    config: &C,
-    attrs: SemanticStage2LeafAttrs<
-        Stage2LeafPermissions,
-        A::OutputAddressSpaceAttr,
-        SemanticVmsa64Stage2LeafControls,
-    >,
-) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
-    C: Stage2MemoryConfig,
-{
-    let mut software = software_four(attrs.controls.software)?;
-    let descriptor_ns = A::resolve(config, attrs.output_address_space, &mut software)?;
-    resolve_vmsa64_stage2_leaf_inner::<P, C>(
-        config,
-        attrs.memory,
-        attrs.permissions,
-        descriptor_ns,
-        attrs.controls,
-        software,
-    )
-}
-
-fn resolve_vmsa64_stage2_leaf_inner<P, C>(
-    config: &C,
-    memory: crate::attrs::Stage2MemoryAttributes,
-    permissions: Stage2LeafPermissions,
-    descriptor_ns: bool,
-    controls: SemanticVmsa64Stage2LeafControls,
-    software: FourBit,
-) -> Result<ResolvedVmsa64Stage2LeafAttrs, AttrError>
-where
-    P: Stage2PermissionModel,
-    C: Stage2MemoryConfig,
-{
-    Ok(ResolvedStage2LeafAttrs {
-        memory: resolve_stage2_memory(config, memory)?,
-        permissions: encode_stage2_direct_permissions(permissions, P::XNX)?,
-        output_address_space: descriptor_ns,
-        controls: ResolvedVmsa64Stage2LeafControls {
-            shareability: RawShareability::from_bits(controls.shareability as u8)?,
-            access_flag: controls.access_flag,
-            dirty_bit_modifier: matches!(
-                controls.dirty_management,
-                crate::attrs::DirtyBitManagement::HardwareManaged
-            ),
-            contiguous: controls.contiguous,
-            software,
-        },
-    })
-}
-
-const fn raw_vmsa64_stage2_leaf(
-    resolved: ResolvedVmsa64Stage2LeafAttrs,
-) -> RawVmsa64Stage2LeafAttrs {
-    RawVmsa64Stage2LeafAttrs {
-        mem_attr: resolved.memory,
-        access: resolved.permissions.0,
-        shareability: resolved.controls.shareability,
-        access_flag: resolved.controls.access_flag,
-        dirty_bit_modifier: resolved.controls.dirty_bit_modifier,
-        contiguous: resolved.controls.contiguous,
-        execute_never: resolved.permissions.1,
-        software: resolved.controls.software,
-    }
-}
-
 fn encode_stage2_leaf_core<P, A, C>(
     config: &C,
     attrs: SemanticStage2LeafAttrs<
@@ -446,7 +301,23 @@ where
     A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
     C: Stage2MemoryConfig,
 {
-    resolve_vmsa64_stage2_leaf_resolved::<P, A, C>(config, attrs).map(raw_vmsa64_stage2_leaf)
+    let mut software = software_four(attrs.controls.software)?;
+    let _descriptor_ns = A::resolve(config, attrs.output_address_space, &mut software)?;
+    let mem_attr = resolve_stage2_memory(config, attrs.memory)?;
+    let (access, execute_never) = encode_stage2_direct_permissions(attrs.permissions, P::XNX)?;
+    Ok(RawVmsa64Stage2LeafAttrs {
+        mem_attr,
+        access,
+        shareability: RawShareability::from_bits(attrs.controls.shareability as u8)?,
+        access_flag: attrs.controls.access_flag,
+        dirty_bit_modifier: matches!(
+            attrs.controls.dirty_management,
+            crate::attrs::DirtyBitManagement::HardwareManaged
+        ),
+        contiguous: attrs.controls.contiguous,
+        execute_never,
+        software,
+    })
 }
 
 fn decode_stage2_leaf_core<P, A, C>(
@@ -471,24 +342,17 @@ where
         memory: decode_stage2_memory(config, raw.mem_attr)?,
         permissions: decode_stage2_direct_permissions(raw.access, raw.execute_never, P::XNX)?,
         output_address_space,
-        controls: decode_vmsa64_stage2_controls(raw, software)?,
-    })
-}
-
-fn decode_vmsa64_stage2_controls(
-    raw: RawVmsa64Stage2LeafAttrs,
-    software: FourBit,
-) -> Result<SemanticVmsa64Stage2LeafControls, AttrError> {
-    Ok(SemanticVmsa64Stage2LeafControls {
-        shareability: decode_shareability(raw.shareability)?,
-        access_flag: raw.access_flag,
-        dirty_management: if raw.dirty_bit_modifier {
-            crate::attrs::DirtyBitManagement::HardwareManaged
-        } else {
-            crate::attrs::DirtyBitManagement::SoftwareManaged
+        controls: SemanticVmsa64Stage2LeafControls {
+            shareability: decode_shareability(raw.shareability)?,
+            access_flag: raw.access_flag,
+            dirty_management: if raw.dirty_bit_modifier {
+                crate::attrs::DirtyBitManagement::HardwareManaged
+            } else {
+                crate::attrs::DirtyBitManagement::SoftwareManaged
+            },
+            contiguous: raw.contiguous,
+            software: SoftwareMetadata::new(software.bits().into()),
         },
-        contiguous: raw.contiguous,
-        software: SoftwareMetadata::new(software.bits().into()),
     })
 }
 
@@ -589,44 +453,6 @@ where
         raw: RegimeTableFields<Vmsa64Lpa2, R, G>,
     ) -> Result<SemanticTableAttrs<Vmsa64Lpa2, R>, AttrError> {
         decode_stage2_table_core(raw)
-    }
-}
-
-fn resolve_stage1_alias<P, A>(global: bool, pas: RawStage1LeafPas) -> Result<bool, AttrError>
-where
-    P: Stage1DirectPermissionModel,
-    A: Stage1PasResolver,
-{
-    if A::USES_NSE {
-        if !global {
-            return Err(AttrError::ConflictingSemanticAttributes);
-        }
-        Ok(pas.nse)
-    } else if P::SUPPORTS_EL0 {
-        if pas.nse {
-            return Err(AttrError::InvalidOutputAddressSpace);
-        }
-        Ok(!global)
-    } else if global && !pas.nse {
-        Ok(false)
-    } else {
-        Err(AttrError::ConflictingSemanticAttributes)
-    }
-}
-
-fn decode_stage1_alias<P, A>(alias: bool) -> Result<(bool, bool), AttrError>
-where
-    P: Stage1DirectPermissionModel,
-    A: Stage1PasResolver,
-{
-    if A::USES_NSE {
-        Ok((alias, true))
-    } else if P::SUPPORTS_EL0 {
-        Ok((false, !alias))
-    } else if alias {
-        Err(AttrError::ConflictingSemanticAttributes)
-    } else {
-        Ok((false, true))
     }
 }
 

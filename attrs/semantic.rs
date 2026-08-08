@@ -144,22 +144,7 @@ pub struct SemanticStage1LeafAttrs<P, Pas, C> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedStage1LeafAttrs<M, P, Pas, C> {
-    pub memory: M,
-    pub permissions: P,
-    pub pas: Pas,
-    pub controls: C,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticStage1TableAttrs<P, Pas, C> {
-    pub permission_limits: P,
-    pub pas: Pas,
-    pub controls: C,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedStage1TableAttrs<P, Pas, C> {
     pub permission_limits: P,
     pub pas: Pas,
     pub controls: C,
@@ -168,14 +153,6 @@ pub(crate) struct ResolvedStage1TableAttrs<P, Pas, C> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticStage2LeafAttrs<P, Pas, C> {
     pub memory: Stage2MemoryAttributes,
-    pub permissions: P,
-    pub output_address_space: Pas,
-    pub controls: C,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ResolvedStage2LeafAttrs<M, P, Pas, C> {
-    pub memory: M,
     pub permissions: P,
     pub output_address_space: Pas,
     pub controls: C,
