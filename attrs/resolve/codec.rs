@@ -9,8 +9,7 @@ use crate::regime::*;
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
 use super::*;
-
-pub trait AttributeCodec<S, R, G, Cfg>:
+pub trait AttributeCodec<R, G, Cfg, S = <R as TranslationRegime>::Stage>:
     DescriptorFormat + HasLayout<S, G> + SemanticAttributeTypes<S, R>
 where
     S: TranslationStage,
@@ -77,7 +76,7 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
 
 macro_rules! impl_stage1_codecs {
     () => {
-        impl<R, G, Cfg> AttributeCodec<Stage1, R, G, Cfg> for Vmsa64
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage1> for Vmsa64
         where
             R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule,
@@ -115,7 +114,7 @@ macro_rules! impl_stage1_codecs {
             }
         }
 
-        impl<R, G, Cfg> AttributeCodec<Stage1, R, G, Cfg> for Vmsa64Lpa2
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage1> for Vmsa64Lpa2
         where
             R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
@@ -157,7 +156,7 @@ macro_rules! impl_stage1_codecs {
             }
         }
 
-        impl<R, G, Cfg> AttributeCodec<Stage1, R, G, Cfg> for Vmsa128
+        impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage1> for Vmsa128
         where
             R: Stage1Regime<Stage = Stage1>,
             G: TranslationGranule,
@@ -202,7 +201,7 @@ macro_rules! impl_stage1_codecs {
 
 impl_stage1_codecs!();
 
-impl<R, G, Cfg> AttributeCodec<Stage2, R, G, Cfg> for Vmsa64
+impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage2> for Vmsa64
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule,
@@ -242,7 +241,7 @@ where
     }
 }
 
-impl<R, G, Cfg> AttributeCodec<Stage2, R, G, Cfg> for Vmsa64Lpa2
+impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage2> for Vmsa64Lpa2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
@@ -286,7 +285,7 @@ where
     }
 }
 
-impl<R, G, Cfg> AttributeCodec<Stage2, R, G, Cfg> for Vmsa128
+impl<R, G, Cfg> AttributeCodec<R, G, Cfg, Stage2> for Vmsa128
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule,

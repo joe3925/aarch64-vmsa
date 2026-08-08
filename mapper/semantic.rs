@@ -33,14 +33,12 @@ where
         table_attrs: SemanticTableAttrs<F, R>,
     ) -> Result<MapLeafOutcome, SemanticMapperError<A::Error, P::Error>>
     where
-        F: AttributeCodec<R::Stage, R, G, Cfg>,
+        F: AttributeCodec<R, G, Cfg>,
     {
-        let leaf =
-            <F as AttributeCodec<R::Stage, R, G, Cfg>>::encode_leaf(config, level, leaf_attrs)
-                .map_err(SemanticMapperError::Attribute)?;
-        let table =
-            <F as AttributeCodec<R::Stage, R, G, Cfg>>::encode_table(config, level, table_attrs)
-                .map_err(SemanticMapperError::Attribute)?;
+        let leaf = <F as AttributeCodec<R, G, Cfg>>::encode_leaf(config, level, leaf_attrs)
+            .map_err(SemanticMapperError::Attribute)?;
+        let table = <F as AttributeCodec<R, G, Cfg>>::encode_table(config, level, table_attrs)
+            .map_err(SemanticMapperError::Attribute)?;
         self.map_leaf(input, output, level, leaf, table)
             .map_err(SemanticMapperError::Mapper)
     }
@@ -55,9 +53,9 @@ where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    F: AttributeCodec<R::Stage, R, G, Cfg>,
+    F: AttributeCodec<R, G, Cfg>,
 {
-    <F as AttributeCodec<R::Stage, R, G, Cfg>>::decode_leaf(config, level, raw)
+    <F as AttributeCodec<R, G, Cfg>>::decode_leaf(config, level, raw)
 }
 
 pub fn decode_semantic_table<F, R, G, Cfg>(
@@ -69,7 +67,7 @@ where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
-    F: AttributeCodec<R::Stage, R, G, Cfg>,
+    F: AttributeCodec<R, G, Cfg>,
 {
-    <F as AttributeCodec<R::Stage, R, G, Cfg>>::decode_table(config, level, raw)
+    <F as AttributeCodec<R, G, Cfg>>::decode_table(config, level, raw)
 }
