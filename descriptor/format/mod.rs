@@ -11,7 +11,7 @@ use portable_atomic::Ordering;
 use portable_atomic::{AtomicU128, Ordering};
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
-use crate::arch::FeatureRequirements;
+use crate::arch::{Capability, FeatureRequirements};
 use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::TranslationStage;
@@ -213,8 +213,8 @@ impl DescriptorFormat for Vmsa64Lpa2 {
     const BASE_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_lpa2()
-        .with_extended_output_address();
+        .require(Capability::Lpa2)
+        .require(Capability::ExtendedOutputAddress);
 
     fn invalid() -> Self::Raw {
         0
@@ -255,7 +255,8 @@ impl DescriptorFormat for Vmsa128 {
     const OUTPUT_ADDRESS_BITS: u8 = 56;
     const BASE_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
-    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE.with_d128();
+    const REQUIRED_FEATURES: FeatureRequirements =
+        FeatureRequirements::NONE.require(Capability::D128);
 
     fn invalid() -> Self::Raw {
         0

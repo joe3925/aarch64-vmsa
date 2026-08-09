@@ -1,8 +1,62 @@
+use strum::EnumCount;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum FeatureStatus {
     NotImplemented,
     Implemented,
     Unknown(u8),
+}
+
+#[non_exhaustive]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, EnumCount, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Capability {
+    El2,
+    El3,
+    El2And0,
+    Sel2,
+    Rme,
+    Stage2,
+    Xnx,
+    Lpa2,
+    D128,
+    D128Stage2,
+    ExtendedInputAddress,
+    ExtendedOutputAddress,
+}
+
+const _: () = assert!(Capability::COUNT <= u128::BITS as usize);
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CapabilitySet(u128);
+
+impl CapabilitySet {
+    pub const NONE: Self = Self(0);
+
+    pub const fn with(self, capability: Capability) -> Self {
+        Self(self.0 | capability_bit(capability))
+    }
+
+    pub const fn contains(self, capability: Capability) -> bool {
+        self.0 & capability_bit(capability) != 0
+    }
+
+    pub const fn contains_all(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn bits(self) -> u128 {
+        self.0
+    }
+}
+
+const fn capability_bit(capability: Capability) -> u128 {
+    1u128 << capability as u8
 }
 
 impl FeatureStatus {
@@ -53,52 +107,52 @@ pub struct IdRegisterSnapshot {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct VmsaFeatures {
-    pub el2: FeatureStatus,
-    pub el3: FeatureStatus,
-    pub el2_and0: FeatureStatus,
-    pub sel2: FeatureStatus,
-    pub rme: FeatureStatus,
-    pub stage2: FeatureStatus,
-    pub xnx: FeatureStatus,
-    pub lpa2: FeatureStatus,
-    pub d128: FeatureStatus,
-    pub d128_stage2: FeatureStatus,
-    pub extended_input_address: FeatureStatus,
-    pub extended_output_address: FeatureStatus,
-    pub security_states: SecurityStates,
+    statuses: [FeatureStatus; Capability::COUNT],
+    security_states: SecurityStates,
 }
 
 impl VmsaFeatures {
     pub const NONE: Self = Self {
-        el2: FeatureStatus::NotImplemented,
-        el3: FeatureStatus::NotImplemented,
-        el2_and0: FeatureStatus::NotImplemented,
-        sel2: FeatureStatus::NotImplemented,
-        rme: FeatureStatus::NotImplemented,
-        stage2: FeatureStatus::NotImplemented,
-        xnx: FeatureStatus::NotImplemented,
-        lpa2: FeatureStatus::NotImplemented,
-        d128: FeatureStatus::NotImplemented,
-        d128_stage2: FeatureStatus::NotImplemented,
-        extended_input_address: FeatureStatus::NotImplemented,
-        extended_output_address: FeatureStatus::NotImplemented,
+        statuses: [FeatureStatus::NotImplemented; Capability::COUNT],
         security_states: SecurityStates::NON_SECURE,
     };
 
+    pub const fn status(self, capability: Capability) -> FeatureStatus {
+        self.statuses[capability as usize]
+    }
+
+    pub const fn implemented_capabilities(self) -> CapabilitySet {
+        let mut implemented = CapabilitySet::NONE;
+        let mut index = 0;
+
+        while index < Capability::COUNT {
+            if self.statuses[index].is_implemented() {
+                implemented.0 |= 1u128 << index;
+            }
+            index += 1;
+        }
+
+        implemented
+    }
+
+    pub const fn security_states(self) -> SecurityStates {
+        self.security_states
+    }
+
     pub const fn verify(self, required: FeatureRequirements) -> bool {
-        (!required.el2 || self.el2.is_implemented())
-            && (!required.el3 || self.el3.is_implemented())
-            && (!required.el2_and0 || self.el2_and0.is_implemented())
-            && (!required.sel2 || self.sel2.is_implemented())
-            && (!required.rme || self.rme.is_implemented())
-            && (!required.stage2 || self.stage2.is_implemented())
-            && (!required.xnx || self.xnx.is_implemented())
-            && (!required.lpa2 || self.lpa2.is_implemented())
-            && (!required.d128 || self.d128.is_implemented())
-            && (!required.d128_stage2 || self.d128_stage2.is_implemented())
-            && (!required.extended_input_address || self.extended_input_address.is_implemented())
-            && (!required.extended_output_address || self.extended_output_address.is_implemented())
+        self.implemented_capabilities()
+            .contains_all(required.capabilities)
             && self.security_states.contains(required.security_states)
+    }
+
+    pub const fn with_status(mut self, capability: Capability, status: FeatureStatus) -> Self {
+        self.statuses[capability as usize] = status;
+        self
+    }
+
+    pub const fn with_security_states(mut self, security_states: SecurityStates) -> Self {
+        self.security_states = security_states;
+        self
     }
 
     #[cfg(target_arch = "aarch64")]
@@ -114,107 +168,39 @@ impl VmsaFeatures {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FeatureRequirements {
-    pub el2: bool,
-    pub el3: bool,
-    pub el2_and0: bool,
-    pub sel2: bool,
-    pub rme: bool,
-    pub stage2: bool,
-    pub xnx: bool,
-    pub lpa2: bool,
-    pub d128: bool,
-    pub d128_stage2: bool,
-    pub extended_input_address: bool,
-    pub extended_output_address: bool,
-    pub security_states: SecurityStates,
+    capabilities: CapabilitySet,
+    security_states: SecurityStates,
 }
 
 impl FeatureRequirements {
     pub const NONE: Self = Self {
-        el2: false,
-        el3: false,
-        el2_and0: false,
-        sel2: false,
-        rme: false,
-        stage2: false,
-        xnx: false,
-        lpa2: false,
-        d128: false,
-        d128_stage2: false,
-        extended_input_address: false,
-        extended_output_address: false,
+        capabilities: CapabilitySet::NONE,
         security_states: SecurityStates::NONE,
     };
 
     pub const fn union(self, other: Self) -> Self {
         Self {
-            el2: self.el2 || other.el2,
-            el3: self.el3 || other.el3,
-            el2_and0: self.el2_and0 || other.el2_and0,
-            sel2: self.sel2 || other.sel2,
-            rme: self.rme || other.rme,
-            stage2: self.stage2 || other.stage2,
-            xnx: self.xnx || other.xnx,
-            lpa2: self.lpa2 || other.lpa2,
-            d128: self.d128 || other.d128,
-            d128_stage2: self.d128_stage2 || other.d128_stage2,
-            extended_input_address: self.extended_input_address || other.extended_input_address,
-            extended_output_address: self.extended_output_address || other.extended_output_address,
+            capabilities: self.capabilities.union(other.capabilities),
             security_states: self.security_states.union(other.security_states),
         }
     }
 
-    pub const fn with_el2(mut self) -> Self {
-        self.el2 = true;
+    pub const fn require(mut self, capability: Capability) -> Self {
+        self.capabilities = self.capabilities.with(capability);
         self
     }
-    pub const fn with_el3(mut self) -> Self {
-        self.el3 = true;
-        self
-    }
-    pub const fn with_el2_and0(mut self) -> Self {
-        self.el2_and0 = true;
-        self
-    }
-    pub const fn with_sel2(mut self) -> Self {
-        self.sel2 = true;
-        self
-    }
-    pub const fn with_rme(mut self) -> Self {
-        self.rme = true;
-        self
-    }
-    pub const fn with_stage2(mut self) -> Self {
-        self.stage2 = true;
-        self
-    }
-    pub const fn with_xnx(mut self) -> Self {
-        self.xnx = true;
-        self
-    }
-    pub const fn with_lpa2(mut self) -> Self {
-        self.lpa2 = true;
-        self
-    }
-    pub const fn with_d128(mut self) -> Self {
-        self.d128 = true;
-        self
-    }
-    pub const fn with_d128_stage2(mut self) -> Self {
-        self.d128_stage2 = true;
-        self
-    }
-    pub const fn with_extended_input_address(mut self) -> Self {
-        self.extended_input_address = true;
-        self
-    }
-    pub const fn with_extended_output_address(mut self) -> Self {
-        self.extended_output_address = true;
-        self
-    }
-    pub const fn with_security_state(mut self, state: SecurityStates) -> Self {
+
+    pub const fn require_security_state(mut self, state: SecurityStates) -> Self {
         self.security_states = self.security_states.union(state);
         self
+    }
+
+    pub const fn capabilities(self) -> CapabilitySet {
+        self.capabilities
+    }
+
+    pub const fn security_states(self) -> SecurityStates {
+        self.security_states
     }
 }
 
@@ -256,21 +242,20 @@ pub const fn decode_features(snapshot: IdRegisterSnapshot) -> VmsaFeatures {
         security_states = security_states.union(SecurityStates::SECURE);
     }
 
-    VmsaFeatures {
-        el2,
-        el3,
-        el2_and0,
-        sel2,
-        rme,
-        stage2: el2,
-        xnx,
-        lpa2,
-        d128,
-        d128_stage2,
-        extended_input_address,
-        extended_output_address,
-        security_states,
-    }
+    VmsaFeatures::NONE
+        .with_status(Capability::El2, el2)
+        .with_status(Capability::El3, el3)
+        .with_status(Capability::El2And0, el2_and0)
+        .with_status(Capability::Sel2, sel2)
+        .with_status(Capability::Rme, rme)
+        .with_status(Capability::Stage2, el2)
+        .with_status(Capability::Xnx, xnx)
+        .with_status(Capability::Lpa2, lpa2)
+        .with_status(Capability::D128, d128)
+        .with_status(Capability::D128Stage2, d128_stage2)
+        .with_status(Capability::ExtendedInputAddress, extended_input_address)
+        .with_status(Capability::ExtendedOutputAddress, extended_output_address)
+        .with_security_states(security_states)
 }
 
 const fn field(register: u64, shift: u8) -> u8 {

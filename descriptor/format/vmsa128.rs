@@ -147,8 +147,8 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
     type TableFields = RawVmsa128Stage2TableAttrs;
     const REQUIRED_FEATURES: crate::arch::FeatureRequirements =
         crate::arch::FeatureRequirements::NONE
-            .with_d128()
-            .with_d128_stage2();
+            .require(crate::arch::Capability::D128)
+            .require(crate::arch::Capability::D128Stage2);
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {

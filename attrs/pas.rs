@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use crate::arch::{FeatureRequirements, SecurityStates};
+use crate::arch::{Capability, FeatureRequirements, SecurityStates};
 
 mod private {
     pub trait Sealed {}
@@ -39,7 +39,7 @@ pub struct SecureSelectablePas;
 impl private::Sealed for SecureSelectablePas {}
 impl PasModel for SecureSelectablePas {
     const REQUIRED_FEATURES: FeatureRequirements =
-        FeatureRequirements::NONE.with_security_state(SecurityStates::SECURE);
+        FeatureRequirements::NONE.require_security_state(SecurityStates::SECURE);
 }
 impl Stage1PasModel for SecureSelectablePas {
     type LeafAttr = SecureSelectablePa;
@@ -52,8 +52,8 @@ pub struct FixedRealmIpaPas;
 impl private::Sealed for FixedRealmIpaPas {}
 impl PasModel for FixedRealmIpaPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_rme()
-        .with_security_state(SecurityStates::REALM);
+        .require(Capability::Rme)
+        .require_security_state(SecurityStates::REALM);
 }
 impl Stage1PasModel for FixedRealmIpaPas {
     type LeafAttr = ();
@@ -72,8 +72,8 @@ pub struct RealmOrNonSecurePaPas;
 impl private::Sealed for RealmOrNonSecurePaPas {}
 impl PasModel for RealmOrNonSecurePaPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_rme()
-        .with_security_state(SecurityStates::REALM);
+        .require(Capability::Rme)
+        .require_security_state(SecurityStates::REALM);
 }
 impl Stage1PasModel for RealmOrNonSecurePaPas {
     type LeafAttr = RealmOrNonSecurePa;
@@ -94,9 +94,9 @@ pub struct RootExtendedPas;
 impl private::Sealed for RootExtendedPas {}
 impl PasModel for RootExtendedPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_rme()
-        .with_el3()
-        .with_security_state(SecurityStates::ROOT);
+        .require(Capability::Rme)
+        .require(Capability::El3)
+        .require_security_state(SecurityStates::ROOT);
 }
 impl Stage1PasModel for RootExtendedPas {
     type LeafAttr = RootExtendedPa;
@@ -124,9 +124,9 @@ pub struct SecureIpaContext;
 impl private::Sealed for SecureIpaContext {}
 impl PasModel for SecureIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_el2()
-        .with_sel2()
-        .with_security_state(SecurityStates::SECURE);
+        .require(Capability::El2)
+        .require(Capability::Sel2)
+        .require_security_state(SecurityStates::SECURE);
 }
 impl Stage2PasContext for SecureIpaContext {
     type OutputAddressSpaceAttr = SecureSelectablePa;
@@ -149,8 +149,8 @@ pub struct RealmIpaContext;
 impl private::Sealed for RealmIpaContext {}
 impl PasModel for RealmIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_rme()
-        .with_security_state(SecurityStates::REALM);
+        .require(Capability::Rme)
+        .require_security_state(SecurityStates::REALM);
 }
 impl Stage2PasContext for RealmIpaContext {
     type OutputAddressSpaceAttr = RealmOrNonSecurePa;

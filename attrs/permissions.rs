@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use crate::arch::FeatureRequirements;
+use crate::arch::{Capability, FeatureRequirements};
 use crate::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -79,7 +79,8 @@ impl PrivilegeModel for El2Permissions {
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = false;
     const HAS_TTBR1: bool = false;
-    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE.with_el2();
+    const REQUIRED_FEATURES: FeatureRequirements =
+        FeatureRequirements::NONE.require(Capability::El2);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,8 +92,9 @@ impl PrivilegeModel for El2And0Permissions {
     type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = true;
     const HAS_TTBR1: bool = true;
-    const REQUIRED_FEATURES: FeatureRequirements =
-        FeatureRequirements::NONE.with_el2().with_el2_and0();
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
+        .require(Capability::El2)
+        .require(Capability::El2And0);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,7 +106,8 @@ impl PrivilegeModel for El3Permissions {
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = false;
     const HAS_TTBR1: bool = false;
-    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE.with_el3();
+    const REQUIRED_FEATURES: FeatureRequirements =
+        FeatureRequirements::NONE.require(Capability::El3);
 }
 
 impl private::Stage2Sealed for Stage2Permissions {}
@@ -116,16 +119,17 @@ pub trait Stage2PermissionModel: private::Stage2Sealed + Copy + 'static {
 }
 
 impl Stage2PermissionModel for Stage2Permissions {
-    const REQUIRED_FEATURES: FeatureRequirements =
-        FeatureRequirements::NONE.with_el2().with_stage2();
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
+        .require(Capability::El2)
+        .require(Capability::Stage2);
     const XNX: bool = false;
 }
 
 impl Stage2PermissionModel for Stage2XnxPermissions {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .with_el2()
-        .with_stage2()
-        .with_xnx();
+        .require(Capability::El2)
+        .require(Capability::Stage2)
+        .require(Capability::Xnx);
     const XNX: bool = true;
 }
 
