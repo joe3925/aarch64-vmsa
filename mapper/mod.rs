@@ -18,18 +18,20 @@ pub use self::types::{
 };
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
-use crate::descriptor::{DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout};
+use crate::descriptor::{
+    DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout, SupportsLiveDescriptorIo,
+};
 use crate::regime::{RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{
-    NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrame,
-    TableFrameProvider, TableTransition,
+    NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrameProvider,
+    TableReclaim, TableTransition,
 };
 use crate::translation::walk::{WalkCursor, WalkInputAddr, WalkLeaf, WalkStep, Walker};
 
 use self::error::map_walk_error;
 use self::validate::{
     add_output, leaf_kind, mapping_size, require_aligned_input, require_aligned_output,
-    require_output_range, require_table_address, validate_root,
+    require_output_range, require_table_address,
 };
 
 pub struct Mapper<F, R, G, A, P, M>
@@ -57,8 +59,6 @@ where
         access: A,
         frames: P,
     ) -> Result<Self, MapperError<A::Error, P::Error>> {
-        validate_root::<F, G, A::Error, P::Error>(root.geometry())?;
-
         Ok(Self {
             root,
             access,
@@ -74,7 +74,7 @@ where
 
 impl<F, R, G, A, P, I> Mapper<F, R, G, A, P, Live<I>>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + SupportsLiveDescriptorIo + HasLayout<R::Stage, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
@@ -87,8 +87,6 @@ where
         frames: P,
         invalidation: I,
     ) -> Result<Self, MapperError<A::Error, P::Error>> {
-        validate_root::<F, G, A::Error, P::Error>(root.geometry())?;
-
         Ok(Self {
             root,
             access,
@@ -99,10 +97,6 @@ where
 
     pub const fn invalidation(&self) -> &I {
         self.mode.invalidation()
-    }
-
-    pub fn invalidation_mut(&mut self) -> &mut I {
-        self.mode.invalidation_mut()
     }
 
     pub fn into_parts(self) -> (RootTable<F, R, G>, A, P, I) {
@@ -133,16 +127,8 @@ where
         &self.access
     }
 
-    pub fn access_mut(&mut self) -> &mut A {
-        &mut self.access
-    }
-
     pub const fn frames(&self) -> &P {
         &self.frames
-    }
-
-    pub fn frames_mut(&mut self) -> &mut P {
-        &mut self.frames
     }
 
     pub fn translate(
@@ -164,6 +150,9 @@ where
         }
     }
 
+    /// Adds a mapping to an invalid entry.
+    ///
+    /// This function does not make the mapped address safe to access.
     pub fn map_leaf(
         &mut self,
         input: WalkInputAddr,
@@ -267,29 +256,46 @@ where
                         .frames
                         .allocate_zeroed_table(layout)
                         .map_err(MapperError::Frame)?;
-                    child_shape.validate_base(frame.addr())?;
-                    require_table_address::<A::Error, P::Error>(
-                        frame.addr().raw(),
-                        self.root.output_addr_bits(),
-                    )?;
-
-                    let table_raw =
-                        <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::table_descriptor(
-                            frame.addr(),
-                            transition,
-                            plan.into_fields(),
+                    let prepared = (|| {
+                        child_shape.validate_base(frame)?;
+                        require_table_address::<A::Error, P::Error>(
+                            frame.raw(),
+                            self.root.output_addr_bits(),
                         )?;
-                    let next = NextTable::<F, G>::new(
-                        frame.addr(),
-                        child_shape.level(),
-                        child_shape.stride_count().raw(),
-                    )?;
+                        let table_raw = <RegimeLayout<F, R, G> as DescriptorLayout<
+                            R::Stage,
+                            G,
+                        >>::table_descriptor(frame, transition, plan.into_fields())?;
+                        let next = NextTable::<F, G>::new(
+                            frame,
+                            child_shape.level(),
+                            child_shape.stride_count().raw(),
+                        )?;
+                        Ok::<_, MapperError<A::Error, P::Error>>((table_raw, next))
+                    })();
+                    let (table_raw, next) = match prepared {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.frames
+                                .reclaim_table(TableReclaim::new(frame, layout))
+                                .map_err(MapperError::Frame)?;
+                            return Err(error);
+                        }
+                    };
 
-                    let old = self.write_descriptor(
+                    let old = match self.write_descriptor(
                         invalid.location(),
                         invalid.entry_index(),
                         table_raw,
-                    )?;
+                    ) {
+                        Ok(old) => old,
+                        Err(error) => {
+                            self.frames
+                                .reclaim_table(TableReclaim::new(frame, layout))
+                                .map_err(MapperError::Frame)?;
+                            return Err(error);
+                        }
+                    };
 
                     self.mode.table_inserted(
                         invalid.location(),
@@ -399,7 +405,12 @@ where
         })
     }
 
-    pub fn unmap(
+    /// Removes an existing leaf translation.
+    ///
+    /// # Safety
+    /// The caller must ensure that no live references, executing code, stacks, DMA users, guests,
+    /// or concurrent agents can use the affected translation during or after its removal.
+    pub unsafe fn unmap(
         &mut self,
         input: WalkInputAddr,
     ) -> Result<UnmapOutcome<F, R, G>, MapperError<A::Error, P::Error>> {
@@ -429,7 +440,12 @@ where
         Ok(UnmapOutcome { old: old_mapping })
     }
 
-    pub fn unmap_reclaim(
+    /// Removes a leaf translation and reclaims newly unreachable table frames.
+    ///
+    /// # Safety
+    /// The requirements of [`Self::unmap`] apply. The caller must additionally ensure the live
+    /// invalidation implementation reaches every hardware walker before reclamation completes.
+    pub unsafe fn unmap_reclaim(
         &mut self,
         input: WalkInputAddr,
     ) -> Result<UnmapReclaimOutcome<F, R, G>, MapperError<A::Error, P::Error>> {

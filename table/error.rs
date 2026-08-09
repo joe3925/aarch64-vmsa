@@ -6,6 +6,7 @@ use super::TableAddressError;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TableError {
     EntryIndexOutOfRange { index: usize, entries: usize },
+    BackingSliceTooShort { required: usize, actual: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

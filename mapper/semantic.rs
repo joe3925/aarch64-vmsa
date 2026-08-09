@@ -23,6 +23,9 @@ where
     M: MapperMode<F, G>,
     RegimeLeafFields<F, R, G>: Copy,
 {
+    /// Encodes attributes and adds a mapping to an invalid entry.
+    ///
+    /// This function does not make the mapped address safe to access.
     pub fn map_semantic_leaf<Cfg>(
         &mut self,
         config: &Cfg,

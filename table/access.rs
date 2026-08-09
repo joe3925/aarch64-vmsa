@@ -15,7 +15,7 @@ pub struct TableAllocLayout {
 }
 
 impl TableAllocLayout {
-    pub const fn new(bytes: u64, align: u64) -> Self {
+    pub(crate) const fn new(bytes: u64, align: u64) -> Self {
         Self { bytes, align }
     }
 
@@ -162,11 +162,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub fn new(
-        addr: TableAddr<G>,
-        level: Level,
-        stride_count: u8,
-    ) -> Result<Self, AccessError> {
+    pub fn new(addr: TableAddr<G>, level: Level, stride_count: u8) -> Result<Self, AccessError> {
         let shape = TableShape::new(level, stride_count)?;
         shape.validate_base(addr)?;
 
@@ -447,6 +443,7 @@ where
         let index = ((self.bits >> bit_offset) & mask) as usize;
         let parent = TableShape {
             level: parent,
+            // SAFETY: `index_stride_count` was encoded by `push`, which validates this value.
             stride_count: unsafe { TableStrideCount::new_unchecked(index_stride_count) },
             _marker: PhantomData,
         };
@@ -596,7 +593,7 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
+    pub(crate) const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
         Self {
             root: addr,
             root_level,
@@ -606,7 +603,7 @@ where
         }
     }
 
-    pub fn new(
+    pub(crate) fn new(
         root: TableAddr<G>,
         root_level: Level,
         current: TableAddr<G>,
@@ -662,7 +659,7 @@ where
         self.path
     }
 
-    pub fn location(self) -> Result<TableAccessLocation<F, G>, AccessError> {
+    pub(crate) fn location<'a>(self) -> Result<TableAccessLocation<'a, F, G>, AccessError> {
         TableAccessLocation::from_cursor(self)
     }
 
@@ -697,26 +694,21 @@ where
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TableAccessLocation<F, G>
+pub struct TableAccessLocation<'a, F, G>
 where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
     cursor: TableCursor<F, G>,
+    _provenance: PhantomData<&'a ()>,
 }
 
-impl<F, G> TableAccessLocation<F, G>
+impl<'a, F, G> TableAccessLocation<'a, F, G>
 where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
-        Self {
-            cursor: TableCursor::root(addr, root_level),
-        }
-    }
-
-    pub fn from_cursor(cursor: TableCursor<F, G>) -> Result<Self, AccessError> {
+    pub(crate) fn from_cursor(cursor: TableCursor<F, G>) -> Result<Self, AccessError> {
         TableCursor::new(
             cursor.root_addr(),
             cursor.root_level(),
@@ -724,7 +716,10 @@ where
             cursor.shape(),
             cursor.path(),
         )
-        .map(|cursor| Self { cursor })
+        .map(|cursor| Self {
+            cursor,
+            _provenance: PhantomData,
+        })
     }
 
     pub const fn cursor(self) -> TableCursor<F, G> {
@@ -752,6 +747,12 @@ where
     }
 }
 
+/// Resolves validated table-walk locations to readable table memory.
+///
+/// # Safety
+/// Implementations must return a correctly aligned, initialized view covering exactly the
+/// requested table shape, or return an error. Returned views must remain valid for their
+/// lifetime and obey Rust aliasing rules even in the presence of hardware table walks.
 pub unsafe trait TableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -761,10 +762,15 @@ where
 
     fn table_at<'a>(
         &'a self,
-        location: TableAccessLocation<F, G>,
+        location: TableAccessLocation<'a, F, G>,
     ) -> Result<TranslationTable<'a, F, G>, Self::Error>;
 }
 
+/// Resolves validated table-walk locations to exclusively writable table memory.
+///
+/// # Safety
+/// In addition to [`TableAccess`], implementations must guarantee exclusive software access
+/// for the returned lifetime and must use the descriptor publication semantics required by `F`.
 pub unsafe trait TableAccessMut<F, G>: TableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -772,6 +778,6 @@ where
 {
     fn table_at_mut<'a>(
         &'a mut self,
-        location: TableAccessLocation<F, G>,
+        location: TableAccessLocation<'a, F, G>,
     ) -> Result<TranslationTableMut<'a, F, G>, Self::Error>;
 }

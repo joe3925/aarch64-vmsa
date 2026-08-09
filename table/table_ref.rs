@@ -34,7 +34,27 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub unsafe fn from_ptr(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
+    pub fn from_slice(entries: &'a [F::Raw], shape: TableShape<F, G>) -> Result<Self, TableError> {
+        if entries.len() < shape.entries() {
+            return Err(TableError::BackingSliceTooShort {
+                required: shape.entries(),
+                actual: entries.len(),
+            });
+        }
+        let base = NonNull::from(&entries[0]);
+        Ok(Self {
+            base,
+            shape,
+            _marker: PhantomData,
+        })
+    }
+
+    /// Creates a table view over raw descriptor memory.
+    ///
+    /// # Safety
+    /// `base` must point to `shape.entries()` initialized descriptors. The memory must stay
+    /// readable for `'a`. Access must follow the aliasing and concurrency rules.
+    pub unsafe fn from_raw_parts(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
             shape,
@@ -66,11 +86,13 @@ where
         if index >= self.entries() {
             return None;
         }
+        // SAFETY: The index is less than the table extent.
         NonNull::new(unsafe { self.base.as_ptr().add(index) })
     }
 
     pub fn read(&self, index: usize) -> Option<F::Raw> {
         let ptr = self.entry_ptr(index)?;
+        // SAFETY: `entry_ptr` returns an initialized descriptor in this readable view.
         Some(unsafe { F::read_descriptor(ptr.as_ptr()) })
     }
 
@@ -96,7 +118,30 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub unsafe fn from_ptr(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
+    pub fn from_slice(
+        entries: &'a mut [F::Raw],
+        shape: TableShape<F, G>,
+    ) -> Result<Self, TableError> {
+        if entries.len() < shape.entries() {
+            return Err(TableError::BackingSliceTooShort {
+                required: shape.entries(),
+                actual: entries.len(),
+            });
+        }
+        let base = NonNull::from(&mut entries[0]);
+        Ok(Self {
+            base,
+            shape,
+            _marker: PhantomData,
+        })
+    }
+
+    /// Creates a mutable table view over raw descriptor memory.
+    ///
+    /// # Safety
+    /// `base` must point to `shape.entries()` initialized descriptors. The memory must stay
+    /// writable for `'a`. Access must follow the aliasing and concurrency rules.
+    pub unsafe fn from_raw_parts(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
             shape,
@@ -121,7 +166,9 @@ where
     }
 
     pub fn as_table(&self) -> TranslationTable<'_, F, G> {
-        unsafe { TranslationTable::from_ptr(self.base, self.shape) }
+        // SAFETY: the mutable view's constructor established the same readable extent, and the
+        // returned shared view is bounded by the borrow of `self`.
+        unsafe { TranslationTable::from_raw_parts(self.base, self.shape) }
     }
 
     pub fn entries(&self) -> usize {
@@ -144,6 +191,7 @@ where
                 entries: self.entries(),
             })?;
 
+        // SAFETY: `entry_ptr` returns a descriptor in this writable view.
         unsafe {
             F::write_descriptor(ptr.as_ptr(), raw);
         }

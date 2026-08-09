@@ -1,4 +1,5 @@
-use crate::descriptor::{DescriptorFormat, Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::descriptor::DescriptorFormat;
 use crate::regime::{Stage1Regime, Stage2Regime, TranslationRegime};
 use crate::translation::{Stage1, Stage2};
 

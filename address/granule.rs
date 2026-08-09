@@ -1,4 +1,5 @@
 use crate::address::VirtAddr;
+use crate::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -123,7 +124,11 @@ impl GranuleKind {
     }
 }
 
-pub trait TranslationGranule: Copy + 'static {
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait TranslationGranule: private::Sealed + Copy + 'static {
     const KIND: GranuleKind;
     const SHIFT: u8;
     const SIZE: u64 = 1u64 << Self::SHIFT;
@@ -170,14 +175,9 @@ pub trait TranslationGranule: Copy + 'static {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Granule4KiB;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Granule16KiB;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Granule64KiB;
+impl private::Sealed for Granule4KiB {}
+impl private::Sealed for Granule16KiB {}
+impl private::Sealed for Granule64KiB {}
 
 impl TranslationGranule for Granule4KiB {
     const KIND: GranuleKind = GranuleKind::Size4KiB;

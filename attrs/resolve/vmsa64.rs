@@ -1,4 +1,4 @@
-use crate::address::{Granule4KiB, Granule16KiB, Granule64KiB, Level, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
     AttrError, FourBit, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, SemanticLeafAttrs,
@@ -7,7 +7,8 @@ use crate::attrs::{
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
     SoftwareMetadata, Stage2LeafPermissions, Stage2PasContext, Stage2PermissionModel,
 };
-use crate::descriptor::{Vmsa64, Vmsa64Lpa2};
+use crate::config::format::{Vmsa64, Vmsa64Lpa2};
+use crate::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, Stage1Regime, Stage2Regime};
 use crate::translation::{Stage1, Stage2};
 

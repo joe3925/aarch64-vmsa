@@ -6,6 +6,14 @@ use crate::regime::TranslationRegime;
 
 use super::{TableAddr, TableGeometry};
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RootGeometryError {
+    InvalidLevel,
+    InvalidInputAddressBits { requested: u8, maximum: u8 },
+    InvalidOutputAddressBits { requested: u8, maximum: u8 },
+    TableAddressOutOfRange,
+}
+
 /// Regime-independent root-table geometry for low-level validation and access.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RootTableGeometry<F, G>
@@ -27,7 +35,11 @@ where
 {
     /// Creates root geometry using the deepest supported level that covers
     /// `addr_bits`.
-    pub const fn new(addr: TableAddr<G>, addr_bits: u8, output_addr_bits: u8) -> Self {
+    pub const fn new(
+        addr: TableAddr<G>,
+        addr_bits: u8,
+        output_addr_bits: u8,
+    ) -> Result<Self, RootGeometryError> {
         Self::new_at_level(
             addr,
             TableGeometry::<F, G>::root_level_for_addr_bits(addr_bits),
@@ -42,14 +54,38 @@ where
         level: Level,
         addr_bits: u8,
         output_addr_bits: u8,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, RootGeometryError> {
+        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+            return Err(RootGeometryError::InvalidLevel);
+        }
+        let maximum = match TableGeometry::<F, G>::max_addr_bits(level) {
+            Some(value) => value,
+            None => return Err(RootGeometryError::InvalidLevel),
+        };
+        if addr_bits == 0 || addr_bits > maximum {
+            return Err(RootGeometryError::InvalidInputAddressBits {
+                requested: addr_bits,
+                maximum,
+            });
+        }
+        if !matches!(output_addr_bits, 32 | 36 | 40 | 42 | 44 | 48 | 52 | 56)
+            || output_addr_bits > F::OUTPUT_ADDRESS_BITS
+        {
+            return Err(RootGeometryError::InvalidOutputAddressBits {
+                requested: output_addr_bits,
+                maximum: F::OUTPUT_ADDRESS_BITS,
+            });
+        }
+        if output_addr_bits < 64 && addr.raw() >> output_addr_bits != 0 {
+            return Err(RootGeometryError::TableAddressOutOfRange);
+        }
+        Ok(Self {
             addr,
             level,
             addr_bits,
             output_addr_bits,
             _format: PhantomData,
-        }
+        })
     }
 
     pub const fn addr(self) -> TableAddr<G> {

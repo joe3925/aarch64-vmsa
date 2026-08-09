@@ -2,7 +2,14 @@ use crate::address::TranslationGranule;
 use crate::descriptor::DescriptorFormat;
 use crate::table::{TableAccessLocation, TableAddr, TableAllocLayout};
 
-pub trait MapperInvalidation<F, G>
+/// Performs architectural synchronization for mutations of a hardware-visible table.
+///
+/// # Safety
+/// Implementations must apply the barriers, translation invalidations, walk-cache maintenance,
+/// CPU scope, and completion guarantees required by the active AArch64 translation regime.
+/// `before_table_frame_reclaim` and the following `synchronize` must make the frame unreachable
+/// by every hardware walker before it is returned to its provider.
+pub unsafe trait MapperInvalidation<F, G>
 where
     F: DescriptorFormat,
     G: TranslationGranule,
@@ -60,10 +67,6 @@ impl<I> Live<I> {
 
     pub const fn invalidation(&self) -> &I {
         &self.invalidation
-    }
-
-    pub fn invalidation_mut(&mut self) -> &mut I {
-        &mut self.invalidation
     }
 
     pub(crate) fn into_invalidation(self) -> I {

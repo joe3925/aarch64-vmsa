@@ -10,7 +10,7 @@ use super::{
     TranslationTable, TranslationTableMut,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RecursiveTableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -28,6 +28,11 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
+    /// Creates access through an active recursive mapping.
+    ///
+    /// # Safety
+    /// The recursive mapping must stay active while this value exists. The mapping must give
+    /// valid access to the specified root and its child tables.
     pub unsafe fn new(
         recursive_index: usize,
         recursive_base: VirtAddr,
@@ -98,7 +103,7 @@ where
 
     fn table_ptr(
         &self,
-        location: TableAccessLocation<F, G>,
+        location: TableAccessLocation<'_, F, G>,
     ) -> Result<NonNull<F::Raw>, AccessError> {
         if location.root_level() != self.root_level {
             return Err(AccessError::RecursiveLevelMismatch);
@@ -155,6 +160,7 @@ where
     }
 }
 
+// SAFETY: The constructor contract keeps each returned table readable for its borrow.
 unsafe impl<F, G> TableAccess<F, G> for RecursiveTableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -164,15 +170,17 @@ where
 
     fn table_at<'a>(
         &'a self,
-        location: TableAccessLocation<F, G>,
+        location: TableAccessLocation<'a, F, G>,
     ) -> Result<TranslationTable<'a, F, G>, Self::Error> {
         let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        Ok(unsafe { TranslationTable::from_ptr(ptr, shape) })
+        // SAFETY: guaranteed by the recursive mapping contract established at construction.
+        Ok(unsafe { TranslationTable::from_raw_parts(ptr, shape) })
     }
 }
 
+// SAFETY: The constructor contract keeps each returned table exclusively writable for its borrow.
 unsafe impl<F, G> TableAccessMut<F, G> for RecursiveTableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -180,11 +188,12 @@ where
 {
     fn table_at_mut<'a>(
         &'a mut self,
-        location: TableAccessLocation<F, G>,
+        location: TableAccessLocation<'a, F, G>,
     ) -> Result<TranslationTableMut<'a, F, G>, Self::Error> {
         let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        Ok(unsafe { TranslationTableMut::from_ptr(ptr, shape) })
+        // SAFETY: guaranteed by the recursive mapping contract established at construction.
+        Ok(unsafe { TranslationTableMut::from_raw_parts(ptr, shape) })
     }
 }

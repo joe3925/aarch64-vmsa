@@ -4,7 +4,7 @@ use crate::attrs::{
     SecureNonSecureIpaContext, SecureSelectablePa, SecureSelectablePas, Stage1PasModel,
     Stage2PasContext, TenBit,
 };
-use crate::descriptor::{Vmsa64, Vmsa128};
+use crate::config::format::{Vmsa64, Vmsa128};
 
 use super::PasConfig;
 

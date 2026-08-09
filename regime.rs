@@ -1,12 +1,16 @@
-use core::marker::PhantomData;
-
 use crate::address::TranslationGranule;
 use crate::arch::{FeatureRequirements, VmsaFeatures};
 use crate::attrs::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, FixedNonSecurePas,
     FixedRealmIpaPas, NonSecureIpaContext, PasModel, PrivilegeModel, RealmIpaContext,
     RealmOrNonSecurePaPas, RootExtendedPas, SecureIpaContext, SecureNonSecureIpaContext,
-    SecureSelectablePas, Stage2PermissionModel, Stage2Permissions,
+    SecureSelectablePas, Stage2PermissionModel,
+};
+use crate::config::regime::{
+    NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
+    RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2, RootEl3Stage1,
+    SecureEl1Stage1, SecureEl2HostStage1, SecureEl2NonSecureIpaStage2, SecureEl2SecureIpaStage2,
+    SecureEl2Stage1,
 };
 use crate::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
 use crate::translation::{Stage1, Stage2, TranslationStage};
@@ -33,7 +37,11 @@ pub enum IpaSpace {
     Realm,
 }
 
-pub trait TranslationRegime: Copy + 'static {
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait TranslationRegime: private::Sealed + Copy + 'static {
     type Stage: TranslationStage;
     type PasModel: PasModel;
 
@@ -102,8 +110,7 @@ where
 
 macro_rules! stage1_regime {
     ($name:ident, $owner:expr, $space:expr, $permissions:ty, $pas:ty) => {
-        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-        pub struct $name;
+        impl private::Sealed for $name {}
         impl TranslationRegime for $name {
             type Stage = Stage1;
             type PasModel = $pas;
@@ -192,17 +199,9 @@ stage1_regime!(
     RootExtendedPas
 );
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NonSecureEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SecureEl2SecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SecureEl2NonSecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RealmEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
-
 macro_rules! stage2_regime {
     ($name:ident, $context:ty, $space:expr, $ipa:expr) => {
+        impl<P: Stage2PermissionModel> private::Sealed for $name<P> {}
         impl<P: Stage2PermissionModel> TranslationRegime for $name<P> {
             type Stage = Stage2;
             type PasModel = $context;

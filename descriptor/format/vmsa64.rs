@@ -5,6 +5,7 @@ use crate::attrs::{
     FourBit, LeafAp, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, Stage2Ap, Stage2ExecuteNever, ThreeBit,
 };
+use crate::config::format::Vmsa64;
 use crate::descriptor::layout::vmsa64 as bits;
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
@@ -14,12 +15,14 @@ use super::vmsa64_family::{
     finish_stage2_leaf, finish_table,
 };
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, Vmsa64, insert_address,
+    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, insert_address,
     require_step_by_one_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Layout<S, G>(PhantomData<(S, G)>);
+
+impl<S, G> super::private::LayoutSealed for Vmsa64Layout<S, G> {}
 
 impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64 {
     type Layout = Vmsa64Layout<Stage1, G>;

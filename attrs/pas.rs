@@ -2,7 +2,11 @@ use core::fmt::Debug;
 
 use crate::arch::{FeatureRequirements, SecurityStates};
 
-pub trait PasModel: Copy + 'static {
+mod private {
+    pub trait Sealed {}
+}
+
+pub trait PasModel: private::Sealed + Copy + 'static {
     const REQUIRED_FEATURES: FeatureRequirements;
 }
 
@@ -12,7 +16,9 @@ pub trait Stage1PasModel: PasModel {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct FixedNonSecurePas;
+impl private::Sealed for FixedNonSecurePas {}
 impl PasModel for FixedNonSecurePas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
 }
@@ -28,7 +34,9 @@ pub enum SecureSelectablePa {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct SecureSelectablePas;
+impl private::Sealed for SecureSelectablePas {}
 impl PasModel for SecureSelectablePas {
     const REQUIRED_FEATURES: FeatureRequirements =
         FeatureRequirements::NONE.with_security_state(SecurityStates::SECURE);
@@ -39,7 +47,9 @@ impl Stage1PasModel for SecureSelectablePas {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct FixedRealmIpaPas;
+impl private::Sealed for FixedRealmIpaPas {}
 impl PasModel for FixedRealmIpaPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
         .with_rme()
@@ -57,7 +67,9 @@ pub enum RealmOrNonSecurePa {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct RealmOrNonSecurePaPas;
+impl private::Sealed for RealmOrNonSecurePaPas {}
 impl PasModel for RealmOrNonSecurePaPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
         .with_rme()
@@ -77,7 +89,9 @@ pub enum RootExtendedPa {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct RootExtendedPas;
+impl private::Sealed for RootExtendedPas {}
 impl PasModel for RootExtendedPas {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
         .with_rme()
@@ -94,7 +108,9 @@ pub trait Stage2PasContext: PasModel {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct NonSecureIpaContext;
+impl private::Sealed for NonSecureIpaContext {}
 impl PasModel for NonSecureIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
 }
@@ -103,7 +119,9 @@ impl Stage2PasContext for NonSecureIpaContext {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct SecureIpaContext;
+impl private::Sealed for SecureIpaContext {}
 impl PasModel for SecureIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
         .with_el2()
@@ -115,7 +133,9 @@ impl Stage2PasContext for SecureIpaContext {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct SecureNonSecureIpaContext;
+impl private::Sealed for SecureNonSecureIpaContext {}
 impl PasModel for SecureNonSecureIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = SecureIpaContext::REQUIRED_FEATURES;
 }
@@ -124,7 +144,9 @@ impl Stage2PasContext for SecureNonSecureIpaContext {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct RealmIpaContext;
+impl private::Sealed for RealmIpaContext {}
 impl PasModel for RealmIpaContext {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
         .with_rme()

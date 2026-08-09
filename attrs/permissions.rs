@@ -1,6 +1,7 @@
 use core::fmt::Debug;
 
 use crate::arch::FeatureRequirements;
+use crate::config::stage2::{Stage2Permissions, Stage2XnxPermissions};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum DataAccess {
@@ -44,7 +45,12 @@ pub struct Stage2LeafPermissions {
     pub unprivileged_execute: bool,
 }
 
-pub trait PrivilegeModel: Copy + 'static {
+mod private {
+    pub trait PrivilegeSealed {}
+    pub trait Stage2Sealed {}
+}
+
+pub trait PrivilegeModel: private::PrivilegeSealed + Copy + 'static {
     type LeafPermissions: Copy + Debug + Eq + PartialEq;
     type TablePermissionLimits: Copy + Debug + Eq + PartialEq;
     const SUPPORTS_EL0: bool;
@@ -53,7 +59,9 @@ pub trait PrivilegeModel: Copy + 'static {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct El1And0Permissions;
+impl private::PrivilegeSealed for El1And0Permissions {}
 impl PrivilegeModel for El1And0Permissions {
     type LeafPermissions = TwoPrivilegeLeafPermissions;
     type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
@@ -63,7 +71,9 @@ impl PrivilegeModel for El1And0Permissions {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct El2Permissions;
+impl private::PrivilegeSealed for El2Permissions {}
 impl PrivilegeModel for El2Permissions {
     type LeafPermissions = SinglePrivilegeLeafPermissions;
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
@@ -73,7 +83,9 @@ impl PrivilegeModel for El2Permissions {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct El2And0Permissions;
+impl private::PrivilegeSealed for El2And0Permissions {}
 impl PrivilegeModel for El2And0Permissions {
     type LeafPermissions = TwoPrivilegeLeafPermissions;
     type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
@@ -84,7 +96,9 @@ impl PrivilegeModel for El2And0Permissions {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
 pub struct El3Permissions;
+impl private::PrivilegeSealed for El3Permissions {}
 impl PrivilegeModel for El3Permissions {
     type LeafPermissions = SinglePrivilegeLeafPermissions;
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
@@ -93,13 +107,10 @@ impl PrivilegeModel for El3Permissions {
     const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE.with_el3();
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2Permissions;
+impl private::Stage2Sealed for Stage2Permissions {}
+impl private::Stage2Sealed for Stage2XnxPermissions {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2XnxPermissions;
-
-pub trait Stage2PermissionModel: Copy + 'static {
+pub trait Stage2PermissionModel: private::Stage2Sealed + Copy + 'static {
     const REQUIRED_FEATURES: FeatureRequirements;
     const XNX: bool;
 }

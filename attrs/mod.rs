@@ -5,8 +5,21 @@ mod resolve;
 mod schema;
 mod semantic;
 
-pub use pas::*;
-pub use permissions::*;
+pub(crate) use pas::{
+    FixedNonSecurePas, FixedRealmIpaPas, NonSecureIpaContext, PasModel, RealmIpaContext,
+    RealmOrNonSecurePaPas, RootExtendedPas, SecureIpaContext, SecureNonSecureIpaContext,
+    SecureSelectablePas, Stage1PasModel, Stage2PasContext,
+};
+pub use pas::{RealmOrNonSecurePa, RootExtendedPa, SecureSelectablePa};
+pub use permissions::{
+    DataAccess, MostlyReadOnly, SinglePrivilegeLeafPermissions,
+    SinglePrivilegeTablePermissionLimits, Stage1EffectivePermissions, Stage2LeafPermissions,
+    Stage2Permission, TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissionLimits,
+};
+pub(crate) use permissions::{
+    El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, PrivilegeModel,
+    Stage2PermissionModel,
+};
 pub(crate) use raw::*;
 pub use resolve::{
     AttributeCodec, D128AliasConfig, LiveVmsaConfig, PasConfig, ShareabilityConfig,
@@ -14,7 +27,7 @@ pub use resolve::{
     Stage1PermissionRegisters, Stage2MemoryConfig, Stage2MemoryMode, Stage2PermissionConfig,
     Stage2PermissionRegisters,
 };
-pub use schema::*;
+pub use schema::{SemanticAttributeTypes, SemanticLeafAttrs, SemanticTableAttrs};
 pub use semantic::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

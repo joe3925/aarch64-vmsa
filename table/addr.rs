@@ -26,7 +26,7 @@ where
     /// # Safety
     ///
     /// `raw` must be aligned to `G::SIZE`.
-    pub const unsafe fn new_unchecked(raw: u64) -> Self {
+    pub(crate) const unsafe fn new_unchecked(raw: u64) -> Self {
         Self {
             raw,
             _marker: PhantomData,

@@ -7,7 +7,7 @@ use crate::attrs::{
     SemanticVmsa128Stage1TableAttrs, SemanticVmsa128Stage2LeafControls,
     SemanticVmsa128Stage2TableAttrs, SoftwareMetadata, Stage2PasContext, TenBit,
 };
-use crate::descriptor::Vmsa128;
+use crate::config::format::Vmsa128;
 use crate::regime::{RegimeLeafFields, RegimeTableFields, Stage1Regime, Stage2Regime};
 use crate::translation::{Stage1, Stage2};
 

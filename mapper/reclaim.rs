@@ -1,7 +1,7 @@
 use crate::address::TranslationGranule;
 use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, TranslationRegime};
-use crate::table::{TableAccessMut, TableFrameProvider};
+use crate::table::{TableAccessMut, TableFrameProvider, TableReclaim};
 use crate::translation::walk::{WalkCursor, WalkInputAddr, WalkStep};
 
 use super::error::map_walk_error;
@@ -88,11 +88,9 @@ where
                     self.mode.before_reclaim(child.addr(), layout);
                     self.mode.synchronize();
 
-                    unsafe {
-                        self.frames
-                            .free_table(child.addr(), layout)
-                            .map_err(MapperError::Frame)?;
-                    }
+                    self.frames
+                        .reclaim_table(TableReclaim::new(child.addr(), layout))
+                        .map_err(MapperError::Frame)?;
 
                     child_result.tables_freed = child_result
                         .tables_freed

@@ -6,17 +6,20 @@ use crate::attrs::{
     RawVmsa128Stage1TableAttrs, RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs,
     Stage1NotDirty, Stage2Dirty, TenBit,
 };
+use crate::config::format::Vmsa128;
 use crate::descriptor::layout::vmsa128 as b;
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
 
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, NextTableDescriptor, Vmsa128,
+    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, NextTableDescriptor,
     insert_address,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa128Layout<S, G>(PhantomData<(S, G)>);
+
+impl<S, G> super::private::LayoutSealed for Vmsa128Layout<S, G> {}
 
 impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa128 {
     type Layout = Vmsa128Layout<Stage1, G>;

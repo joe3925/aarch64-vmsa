@@ -5,6 +5,7 @@ use crate::attrs::{
     FourBit, LeafAp, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, Stage2Ap, Stage2ExecuteNever, ThreeBit,
 };
+use crate::config::format::Vmsa64Lpa2;
 use crate::descriptor::layout::{vmsa64 as b, vmsa64_lpa2 as lpa2};
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
@@ -14,12 +15,13 @@ use super::vmsa64_family::{
     finish_stage2_leaf, finish_table,
 };
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, Vmsa64Lpa2,
-    require_step_by_one_transition,
+    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, require_step_by_one_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Lpa2Layout<S, G>(PhantomData<(S, G)>);
+
+impl<S, G> super::private::LayoutSealed for Vmsa64Lpa2Layout<S, G> {}
 
 impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64Lpa2 {
     type Layout = Vmsa64Lpa2Layout<Stage1, G>;
@@ -28,9 +30,7 @@ impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64Lpa2 {
     type Layout = Vmsa64Lpa2Layout<Stage2, G>;
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
-    for Vmsa64Lpa2Layout<Stage1, G>
-{
+impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Stage1, G> {
     type Format = Vmsa64Lpa2;
     type LeafFields = RawVmsa64Stage1LeafAttrs;
     type TableFields = RawVmsa64Stage1TableAttrs;
@@ -120,9 +120,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G>
     }
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage2, G>
-    for Vmsa64Lpa2Layout<Stage2, G>
-{
+impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Lpa2Layout<Stage2, G> {
     type Format = Vmsa64Lpa2;
     type LeafFields = RawVmsa64Stage2LeafAttrs;
     type TableFields = RawVmsa64Stage2TableAttrs;

@@ -373,6 +373,7 @@ macro_rules! id_register_reader {
         #[inline]
         fn $function() -> u64 {
             let value: u64;
+            // SAFETY: This instruction reads the named system register and does not access memory.
             unsafe {
                 core::arch::asm!(concat!("mrs {value}, ", $register), value = out(reg) value,
                     options(nomem, nostack, preserves_flags));

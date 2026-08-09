@@ -1,54 +1,9 @@
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
-use crate::table::{RootTableGeometry, TableGeometry};
+use crate::table::TableGeometry;
 use crate::translation::walk::WalkLeafKind;
 
 use super::MapperError;
-
-pub(super) fn validate_root<F, G, AccessErrorKind, FrameErrorKind>(
-    root: RootTableGeometry<F, G>,
-) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>>
-where
-    F: DescriptorFormat,
-    G: TranslationGranule,
-{
-    if root.level().is_before(F::EXTENDED_LOWEST_ROOT_LEVEL)
-        || root.level().is_after(F::FINAL_LEVEL)
-    {
-        return Err(MapperError::InvalidRootLevel {
-            root_level: root.level(),
-            lowest_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
-            final_level: F::FINAL_LEVEL,
-        });
-    }
-
-    let max_addr_bits = TableGeometry::<F, G>::max_addr_bits(root.level()).unwrap_or(0);
-
-    if root.addr_bits() == 0 || root.addr_bits() > max_addr_bits || root.addr_bits() > 64 {
-        return Err(MapperError::InvalidRootAddressBits {
-            addr_bits: root.addr_bits(),
-            max_addr_bits,
-        });
-    }
-
-    if !matches!(
-        root.output_addr_bits(),
-        32 | 36 | 40 | 42 | 44 | 48 | 52 | 56
-    ) || root.output_addr_bits() > F::OUTPUT_ADDRESS_BITS
-    {
-        return Err(MapperError::InvalidConfiguredOutputAddressBits {
-            output_address_bits: root.output_addr_bits(),
-            format_max_bits: F::OUTPUT_ADDRESS_BITS,
-        });
-    }
-
-    require_table_address::<AccessErrorKind, FrameErrorKind>(
-        root.addr().raw(),
-        root.output_addr_bits(),
-    )?;
-
-    Ok(())
-}
 
 pub(super) fn require_input_addr<AccessErrorKind, FrameErrorKind>(
     addr: u64,

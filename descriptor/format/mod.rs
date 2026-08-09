@@ -3,13 +3,16 @@ mod vmsa64;
 mod vmsa64_family;
 mod vmsa64_lpa2;
 
-use core::ptr;
-
+#[cfg(target_has_atomic = "64")]
+use portable_atomic::AtomicU64;
+#[cfg(all(target_has_atomic = "64", not(target_has_atomic = "128")))]
+use portable_atomic::Ordering;
 #[cfg(target_has_atomic = "128")]
 use portable_atomic::{AtomicU128, Ordering};
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::arch::FeatureRequirements;
+use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::TranslationStage;
 
@@ -50,7 +53,12 @@ pub enum DescriptorError {
     InvalidReservedBitState,
 }
 
-pub trait DescriptorFormat: Copy + Sized + 'static {
+mod private {
+    pub trait FormatSealed {}
+    pub trait LayoutSealed {}
+}
+
+pub trait DescriptorFormat: private::FormatSealed + Copy + Sized + 'static {
     type Raw: Copy + Eq;
 
     const DESCRIPTOR_BYTES: usize;
@@ -64,11 +72,23 @@ pub trait DescriptorFormat: Copy + Sized + 'static {
     fn invalid() -> Self::Raw;
     fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool;
 
+    /// Reads one descriptor.
+    ///
+    /// # Safety
+    /// `ptr` must be aligned and valid for one initialized descriptor.
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw;
+
+    /// Writes one descriptor.
+    ///
+    /// # Safety
+    /// `ptr` must be aligned and valid for one writable descriptor.
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw);
 }
 
-pub trait DescriptorLayout<S, G>: Copy + 'static
+/// Marks a format that supports atomic access to live descriptors.
+pub trait SupportsLiveDescriptorIo: DescriptorFormat {}
+
+pub trait DescriptorLayout<S, G>: private::LayoutSealed + Copy + 'static
 where
     S: TranslationStage,
     G: TranslationGranule,
@@ -81,8 +101,14 @@ where
     const ADDRESS_FIELD_MASK: u128;
 
     fn kind(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> DescriptorKind;
-    fn decode_leaf_fields(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Self::LeafFields;
-    fn decode_table_fields(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> Self::TableFields;
+    fn decode_leaf_fields(
+        raw: <Self::Format as DescriptorFormat>::Raw,
+        level: Level,
+    ) -> Self::LeafFields;
+    fn decode_table_fields(
+        raw: <Self::Format as DescriptorFormat>::Raw,
+        level: Level,
+    ) -> Self::TableFields;
     fn leaf_descriptor(
         output_pa: PhysAddr,
         level: Level,
@@ -127,14 +153,16 @@ where
     type Layout: DescriptorLayout<S, G, Format = Self>;
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa64;
+impl private::FormatSealed for Vmsa64 {}
+impl private::FormatSealed for Vmsa64Lpa2 {}
+impl private::FormatSealed for Vmsa128 {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa64Lpa2;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa128;
+#[cfg(target_has_atomic = "64")]
+impl SupportsLiveDescriptorIo for Vmsa64 {}
+#[cfg(target_has_atomic = "64")]
+impl SupportsLiveDescriptorIo for Vmsa64Lpa2 {}
+#[cfg(target_has_atomic = "128")]
+impl SupportsLiveDescriptorIo for Vmsa128 {}
 
 impl DescriptorFormat for Vmsa64 {
     type Raw = u64;
@@ -152,10 +180,28 @@ impl DescriptorFormat for Vmsa64 {
         vmsa64::supports_leaf_level(G::KIND, level)
     }
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
-        unsafe { ptr::read_volatile(ptr) }
+        #[cfg(target_has_atomic = "64")]
+        {
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
+            unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
+            unsafe { core::ptr::read_volatile(ptr) }
+        }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
-        unsafe { ptr::write_volatile(ptr, raw) }
+        #[cfg(target_has_atomic = "64")]
+        {
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
+            unsafe { AtomicU64::from_ptr(ptr).store(raw, Ordering::Release) }
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
+            unsafe { core::ptr::write_volatile(ptr, raw) }
+        }
     }
 }
 
@@ -177,10 +223,28 @@ impl DescriptorFormat for Vmsa64Lpa2 {
         vmsa64_lpa2::supports_leaf_level(G::KIND, level)
     }
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
-        unsafe { ptr::read_volatile(ptr) }
+        #[cfg(target_has_atomic = "64")]
+        {
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
+            unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
+            unsafe { core::ptr::read_volatile(ptr) }
+        }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
-        unsafe { ptr::write_volatile(ptr, raw) }
+        #[cfg(target_has_atomic = "64")]
+        {
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
+            unsafe { AtomicU64::from_ptr(ptr).store(raw, Ordering::Release) }
+        }
+        #[cfg(not(target_has_atomic = "64"))]
+        {
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
+            unsafe { core::ptr::write_volatile(ptr, raw) }
+        }
     }
 }
 
@@ -202,21 +266,25 @@ impl DescriptorFormat for Vmsa128 {
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
         #[cfg(target_has_atomic = "128")]
         {
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
             unsafe { AtomicU128::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
         }
         #[cfg(not(target_has_atomic = "128"))]
         {
-            unsafe { ptr::read_volatile(ptr) }
+            // SAFETY: The caller supplies an aligned, readable descriptor pointer.
+            unsafe { core::ptr::read_volatile(ptr) }
         }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
         #[cfg(target_has_atomic = "128")]
         {
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
             unsafe { AtomicU128::from_ptr(ptr).store(raw, Ordering::Release) }
         }
         #[cfg(not(target_has_atomic = "128"))]
         {
-            unsafe { ptr::write_volatile(ptr, raw) }
+            // SAFETY: The caller supplies an aligned, writable descriptor pointer.
+            unsafe { core::ptr::write_volatile(ptr, raw) }
         }
     }
 }
