@@ -21,7 +21,7 @@ use aarch64_vmsa::table::{
     TranslationTableMut,
 };
 
-use aarch64_vmsa::translation::WalkInputAddr;
+use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, Walker};
 
 struct ExampleConfig;
 
@@ -160,6 +160,47 @@ fn main() {
             table_attrs,
         )
         .expect("failed to map page");
+
+    {
+        let walker = Walker::new(mapper.root(), mapper.access()).expect("failed to create walker");
+        let mut walk = walker.start();
+
+        loop {
+            match walk.next_entry().expect("failed to read table entry") {
+                Some(WalkEntry::Invalid(_)) => {}
+                Some(WalkEntry::Leaf(leaf)) => {
+                    let attrs = leaf
+                        .semantic_attrs(&ExampleConfig)
+                        .expect("failed to decode leaf attributes");
+                    println!(
+                        "level {:?}, table {:#x}, entry {}: leaf, semantic attributes: {:?}",
+                        leaf.level(),
+                        leaf.info().table().raw(),
+                        leaf.entry_index(),
+                        attrs,
+                    );
+                }
+                Some(WalkEntry::Table(table)) => {
+                    let attrs = table
+                        .semantic_attrs(&ExampleConfig)
+                        .expect("failed to decode table attributes");
+                    println!(
+                        "level {:?}, table {:#x}, entry {}: table, semantic attributes: {:?}",
+                        table.level(),
+                        table.info().table().raw(),
+                        table.entry_index(),
+                        attrs,
+                    );
+                    walk.step_in(table).expect("failed to enter table");
+                }
+                None => {
+                    if !walk.step_out().expect("failed to leave table") {
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     let mapping = mapper
         .translate(WalkInputAddr::new(0x100_000))

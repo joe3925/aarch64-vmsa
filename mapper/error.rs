@@ -35,6 +35,10 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
     InvalidLevel {
         level: Level,
     },
+    WalkPathEntryNotTable {
+        level: Level,
+        entry_index: usize,
+    },
     OutputAddressOverflow {
         base: PhysAddr,
         offset: u64,
@@ -138,6 +142,9 @@ pub(super) fn map_walk_error<AccessErrorKind, FrameErrorKind>(
         }
         crate::translation::walk::WalkError::TableDescriptorAtFinalLevel { level } => {
             MapperError::InvalidLevel { level }
+        }
+        crate::translation::walk::WalkError::PathEntryNotTable { level, entry_index } => {
+            MapperError::WalkPathEntryNotTable { level, entry_index }
         }
         crate::translation::walk::WalkError::OutputAddressOverflow { base, offset } => {
             MapperError::OutputAddressOverflow { base, offset }

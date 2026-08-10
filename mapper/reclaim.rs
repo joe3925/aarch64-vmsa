@@ -2,7 +2,8 @@ use crate::address::TranslationGranule;
 use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider, TableReclaim};
-use crate::translation::walk::{WalkCursor, WalkInputAddr, WalkStep};
+use crate::translation::WalkEntry;
+use crate::translation::walk::{ResolvedWalkLeaf, WalkCursor, WalkInputAddr};
 
 use super::error::map_walk_error;
 use super::{Mapper, MapperError, MapperMode, Mapping};
@@ -41,10 +42,13 @@ where
         };
 
         match step {
-            WalkStep::Invalid(_) => Err(MapperError::NotMapped { input }),
+            WalkEntry::Invalid(_) => Err(MapperError::NotMapped { input }),
 
-            WalkStep::Leaf(leaf) => {
+            WalkEntry::Leaf(leaf) => {
                 self.require_leaf_base(input, leaf.level())?;
+
+                let leaf = ResolvedWalkLeaf::from_entry::<A::Error>(cursor, leaf)
+                    .map_err(map_walk_error::<A::Error, P::Error>)?;
 
                 let current_table_has_other_valid_entries = self.table_has_valid_entries_except(
                     leaf.location(),
@@ -67,7 +71,7 @@ where
                 })
             }
 
-            WalkStep::Table(table) => {
+            WalkEntry::Table(table) => {
                 let current_table_has_other_valid_entries = self.table_has_valid_entries_except(
                     table.location(),
                     table.level(),
@@ -75,7 +79,8 @@ where
                 )?;
 
                 let child = table.next_table();
-                let mut child_result = self.unmap_reclaim_at(input, table.next_cursor())?;
+                let next_cursor = cursor.with_table(table.next_cursor());
+                let mut child_result = self.unmap_reclaim_at(input, next_cursor)?;
 
                 if child_result.current_table_empty {
                     let layout = child.shape().alloc_layout()?;

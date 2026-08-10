@@ -26,7 +26,8 @@ use crate::table::{
     NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrameProvider,
     TableReclaim, TableTransition,
 };
-use crate::translation::walk::{WalkCursor, WalkInputAddr, WalkLeaf, WalkStep, Walker};
+use crate::translation::WalkEntry;
+use crate::translation::walk::{ResolvedWalkLeaf, WalkCursor, WalkInputAddr, Walker};
 
 use self::error::map_walk_error;
 use self::validate::{
@@ -213,7 +214,7 @@ where
             };
 
             match step {
-                WalkStep::Invalid(invalid) => {
+                WalkEntry::Invalid(invalid) => {
                     if invalid.level().is_after(level) {
                         return Err(MapperError::InvalidLeafLevel {
                             level,
@@ -309,9 +310,9 @@ where
                         .checked_add(1)
                         .ok_or(MapperError::AddressOverflow)?;
 
-                    cursor = invalid.cursor().next_table(invalid.entry_index(), next)?;
+                    cursor = cursor.next_table(invalid.entry_index(), next)?;
                 }
-                WalkStep::Table(table) => {
+                WalkEntry::Table(table) => {
                     if table.level() == level {
                         return Err(MapperError::AlreadyMapped {
                             input,
@@ -320,9 +321,9 @@ where
                         });
                     }
 
-                    cursor = table.next_cursor();
+                    cursor = cursor.with_table(table.next_cursor());
                 }
-                WalkStep::Leaf(leaf) => {
+                WalkEntry::Leaf(leaf) => {
                     return Err(MapperError::AlreadyMapped {
                         input,
                         level: leaf.level(),
@@ -476,7 +477,7 @@ where
 
     pub(super) fn decode_mapping(
         &self,
-        leaf: WalkLeaf<F, R, G>,
+        leaf: ResolvedWalkLeaf<F, R, G>,
     ) -> Result<Mapping<F, R, G>, MapperError<A::Error, P::Error>> {
         let input = leaf.cursor().input();
         let covered_size = mapping_size::<F, G, A::Error, P::Error>(leaf.level())?;

@@ -318,12 +318,23 @@ where
         self.len
     }
 
-    pub const fn is_root(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.len == 0
+    }
+
+    pub const fn is_root(&self) -> bool {
+        self.is_empty()
     }
 
     pub const fn bits(&self) -> u128 {
         self.bits
+    }
+
+    pub(crate) const fn same_path(self, other: Self) -> bool {
+        self.bits == other.bits
+            && self.index_strides == other.index_strides
+            && self.level_steps == other.level_steps
+            && self.len == other.len
     }
 
     pub fn push(
@@ -657,6 +668,15 @@ where
 
     pub const fn path(self) -> TableWalkPath<F, G> {
         self.path
+    }
+
+    pub(crate) const fn same_location(self, other: Self) -> bool {
+        self.root.raw() == other.root.raw()
+            && self.root_level.as_i8() == other.root_level.as_i8()
+            && self.current.raw() == other.current.raw()
+            && self.shape.level().as_i8() == other.shape.level().as_i8()
+            && self.shape.stride_count().raw() == other.shape.stride_count().raw()
+            && self.path.same_path(other.path)
     }
 
     pub(crate) fn location<'a>(self) -> Result<TableAccessLocation<'a, F, G>, AccessError> {

@@ -4,6 +4,7 @@ use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider};
 use crate::translation::walk::WalkInputAddr;
+use crate::translation::{WalkLeaf, WalkTable};
 
 use super::{MapLeafOutcome, Mapper, MapperError, MapperMode, Mapping};
 
@@ -59,6 +60,36 @@ where
         F: AttributeCodec<R, G, Cfg>,
     {
         <F as AttributeCodec<R, G, Cfg>>::decode_leaf(config, self.level(), *self.fields())
+    }
+}
+
+impl<F, R, G> WalkLeaf<F, R, G>
+where
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
+    G: TranslationGranule,
+{
+    /// Decodes this leaf descriptor's raw fields using the supplied architectural configuration.
+    pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticLeafAttrs<F, R>, AttrError>
+    where
+        F: AttributeCodec<R, G, Cfg>,
+    {
+        <F as AttributeCodec<R, G, Cfg>>::decode_leaf(config, self.info().level(), *self.fields())
+    }
+}
+
+impl<F, R, G> WalkTable<F, R, G>
+where
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: TranslationRegime,
+    G: TranslationGranule,
+{
+    /// Decodes this table descriptor's raw fields using the supplied architectural configuration.
+    pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticTableAttrs<F, R>, AttrError>
+    where
+        F: AttributeCodec<R, G, Cfg>,
+    {
+        <F as AttributeCodec<R, G, Cfg>>::decode_table(config, self.info().level(), *self.fields())
     }
 }
 
