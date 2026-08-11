@@ -389,7 +389,7 @@ fn table_address<G: TranslationGranule>(raw: u128) -> TableAddr<G> {
     let address = (raw & b::ADDRESS_FIELD_MASK) as u64;
     let bits = 4 + (G::SHIFT - 4) * (raw_skl(raw) + 1);
     let address = align_down(address, bits);
-    // SAFETY: D128 table addresses are aligned by the descriptor's SKL.
+    // SAFETY: The descriptor SKL aligns the D128 table address.
     unsafe { TableAddr::new_unchecked(address) }
 }
 

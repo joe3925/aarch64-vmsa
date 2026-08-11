@@ -14,7 +14,7 @@ pub enum RootGeometryError {
     TableAddressOutOfRange,
 }
 
-/// Regime-independent root-table geometry for low-level validation and access.
+/// This type contains regime-independent root-table geometry for low-level validation and access.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RootTableGeometry<F, G>
 where
@@ -33,8 +33,8 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    /// Creates root geometry using the deepest supported level that covers
-    /// `addr_bits`.
+    /// This function makes root geometry for `addr_bits`.
+    /// It uses the root level with the minimum number of table-walk steps.
     pub const fn new(
         addr: TableAddr<G>,
         addr_bits: u8,
@@ -48,7 +48,7 @@ where
         )
     }
 
-    /// Creates root geometry at an explicitly selected translation level.
+    /// This function makes root geometry at a specified translation level.
     pub const fn new_at_level(
         addr: TableAddr<G>,
         level: Level,
@@ -112,7 +112,7 @@ where
     }
 }
 
-/// A root table with its descriptor format, regime, and granule in its type.
+/// This type identifies a root table and its descriptor format, regime, and granule.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RootTable<F, R, G>
 where

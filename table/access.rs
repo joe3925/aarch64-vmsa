@@ -77,18 +77,26 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub const fn root(level: Level) -> Self {
-        Self {
-            level,
-            stride_count: TableStrideCount::ONE,
-            _marker: PhantomData,
+    pub const fn root(level: Level) -> Result<Self, AccessError> {
+        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+            Err(AccessError::InvalidTableLevel {
+                root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
+                level,
+                final_level: F::FINAL_LEVEL,
+            })
+        } else {
+            Ok(Self {
+                level,
+                stride_count: TableStrideCount::ONE,
+                _marker: PhantomData,
+            })
         }
     }
 
     pub fn new(level: Level, stride_count: u8) -> Result<Self, AccessError> {
-        if level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
             return Err(AccessError::InvalidTableLevel {
-                root_level: level,
+                root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
                 level,
                 final_level: F::FINAL_LEVEL,
             });
@@ -454,7 +462,7 @@ where
         let index = ((self.bits >> bit_offset) & mask) as usize;
         let parent = TableShape {
             level: parent,
-            // SAFETY: `index_stride_count` was encoded by `push`, which validates this value.
+            // SAFETY: `push` encoded and validated `index_stride_count`.
             stride_count: unsafe { TableStrideCount::new_unchecked(index_stride_count) },
             _marker: PhantomData,
         };
@@ -609,7 +617,11 @@ where
             root: addr,
             root_level,
             current: addr,
-            shape: TableShape::root(root_level),
+            shape: TableShape {
+                level: root_level,
+                stride_count: TableStrideCount::ONE,
+                _marker: PhantomData,
+            },
             path: TableWalkPath::root(),
         }
     }
@@ -767,12 +779,13 @@ where
     }
 }
 
-/// Resolves validated table-walk locations to readable table memory.
+/// This trait resolves validated table-walk locations to readable table memory.
 ///
 /// # Safety
-/// Implementations must return a correctly aligned, initialized view covering exactly the
-/// requested table shape, or return an error. Returned views must remain valid for their
-/// lifetime and obey Rust aliasing rules even in the presence of hardware table walks.
+/// An implementation must return an aligned and initialized view of the specified table shape.
+/// If it cannot return this view, it must return an error.
+/// The view memory must stay available during the view lifetime.
+/// The view must obey Rust aliasing rules while hardware table walks occur.
 pub unsafe trait TableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -786,11 +799,13 @@ where
     ) -> Result<TranslationTable<'a, F, G>, Self::Error>;
 }
 
-/// Resolves validated table-walk locations to exclusively writable table memory.
+/// This trait resolves validated table-walk locations to writable table memory with exclusive
+/// software access.
 ///
 /// # Safety
-/// In addition to [`TableAccess`], implementations must guarantee exclusive software access
-/// for the returned lifetime and must use the descriptor publication semantics required by `F`.
+/// An implementation must also obey the [`TableAccess`] requirements.
+/// It must give exclusive software access during the lifetime of the returned view.
+/// It must use the descriptor publication semantics that are necessary for `F`.
 pub unsafe trait TableAccessMut<F, G>: TableAccess<F, G>
 where
     F: DescriptorFormat,

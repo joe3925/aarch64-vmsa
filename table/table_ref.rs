@@ -49,11 +49,11 @@ where
         })
     }
 
-    /// Creates a table view over raw descriptor memory.
+    /// This function makes a table view of raw descriptor memory.
     ///
     /// # Safety
-    /// `base` must point to `shape.entries()` initialized descriptors. The memory must stay
-    /// readable for `'a`. Access must follow the aliasing and concurrency rules.
+    /// `base` must identify `shape.entries()` initialized descriptors.
+    /// The memory must stay readable for `'a`. Access must obey the aliasing and concurrency rules.
     pub unsafe fn from_raw_parts(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
@@ -86,7 +86,7 @@ where
         if index >= self.entries() {
             return None;
         }
-        // SAFETY: The index is less than the table extent.
+        // SAFETY: The index is less than the number of table entries.
         NonNull::new(unsafe { self.base.as_ptr().add(index) })
     }
 
@@ -136,11 +136,11 @@ where
         })
     }
 
-    /// Creates a mutable table view over raw descriptor memory.
+    /// This function makes a mutable table view of raw descriptor memory.
     ///
     /// # Safety
-    /// `base` must point to `shape.entries()` initialized descriptors. The memory must stay
-    /// writable for `'a`. Access must follow the aliasing and concurrency rules.
+    /// `base` must identify `shape.entries()` initialized descriptors.
+    /// The memory must stay writable for `'a`. Access must obey the aliasing and concurrency rules.
     pub unsafe fn from_raw_parts(base: NonNull<F::Raw>, shape: TableShape<F, G>) -> Self {
         Self {
             base,
@@ -166,8 +166,8 @@ where
     }
 
     pub fn as_table(&self) -> TranslationTable<'_, F, G> {
-        // SAFETY: the mutable view's constructor established the same readable extent, and the
-        // returned shared view is bounded by the borrow of `self`.
+        // SAFETY: The mutable-view constructor gives the same readable extent.
+        // The borrow of `self` controls the shared-view lifetime.
         unsafe { TranslationTable::from_raw_parts(self.base, self.shape) }
     }
 

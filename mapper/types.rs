@@ -29,27 +29,6 @@ impl MapLeafOutcome {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MapRangeOutcome {
-    pub(super) mappings_created: u64,
-    pub(super) bytes_mapped: u64,
-    pub(super) tables_allocated: u64,
-}
-
-impl MapRangeOutcome {
-    pub const fn mappings_created(&self) -> u64 {
-        self.mappings_created
-    }
-
-    pub const fn bytes_mapped(&self) -> u64 {
-        self.bytes_mapped
-    }
-
-    pub const fn tables_allocated(&self) -> u64 {
-        self.tables_allocated
-    }
-}
-
 pub struct UnmapOutcome<F, R, G>
 where
     F: DescriptorFormat + HasLayout<R::Stage, G>,

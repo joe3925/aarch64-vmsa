@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TableGeometry<F, G>(PhantomData<(F, G)>);
 
 impl<F, G> TableGeometry<F, G>
@@ -10,10 +11,18 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    /// Returns the deepest supported root level that covers `addr_bits`.
+    /// This function makes a stateless geometry value for the specified format and granule.
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+
+    /// This function returns a supported root level for `addr_bits`.
+    /// It selects the level with the minimum number of table-walk steps.
     ///
-    /// Invalid widths are assigned to the closest supported level and are
-    /// rejected later by root validation.
+    /// For `addr_bits == 0`, this function returns `F::FINAL_LEVEL`.
+    /// For an address width greater than the maximum, it returns
+    /// `F::EXTENDED_LOWEST_ROOT_LEVEL`.
+    /// Root validation rejects these address widths.
     pub const fn root_level_for_addr_bits(addr_bits: u8) -> Level {
         let mut level = F::FINAL_LEVEL;
 
@@ -31,9 +40,9 @@ where
         }
     }
 
-    /// Returns the maximum input-address width covered by a root at `level`.
+    /// This function returns the maximum input-address width for a root at `level`.
     pub const fn max_addr_bits(level: Level) -> Option<u8> {
-        if level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
             return None;
         }
 
@@ -103,11 +112,11 @@ where
     }
 
     pub const fn checked_level_shift(level: Level) -> Option<u8> {
-        if level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
             return None;
         }
 
-        let delta = F::FINAL_LEVEL.as_i8() - level.as_i8();
+        let delta = F::FINAL_LEVEL.as_i8() as i16 - level.as_i8() as i16;
 
         if delta < 0 {
             return None;
@@ -121,6 +130,17 @@ where
         }
 
         Some(shift as u8)
+    }
+
+    /// This function returns the input-address span for one entry at `level`.
+    ///
+    /// This span gives only table-geometry information.
+    /// It does not identify a supported leaf level.
+    pub const fn level_span(level: Level) -> Option<u64> {
+        match Self::checked_level_shift(level) {
+            Some(shift) => Some(1u64 << shift),
+            None => None,
+        }
     }
 
     pub const fn level_shift(level: Level) -> u8 {

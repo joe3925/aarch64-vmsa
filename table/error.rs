@@ -18,6 +18,10 @@ pub enum AccessError {
         align: u64,
     },
     RecursiveLevelMismatch,
+    RecursiveRootMismatch {
+        expected: u64,
+        actual: u64,
+    },
     RecursiveIndexOutOfRange {
         index: usize,
         entries: usize,

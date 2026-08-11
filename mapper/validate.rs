@@ -1,6 +1,5 @@
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{Level, PhysAddr};
 use crate::descriptor::DescriptorFormat;
-use crate::table::TableGeometry;
 use crate::translation::walk::WalkLeafKind;
 
 use super::MapperError;
@@ -92,32 +91,6 @@ pub(super) fn require_table_address<AccessErrorKind, FrameErrorKind>(
             output_address_bits,
         })
     }
-}
-
-pub(super) fn add_output<AccessErrorKind, FrameErrorKind>(
-    base: PhysAddr,
-    offset: u64,
-) -> Result<PhysAddr, MapperError<AccessErrorKind, FrameErrorKind>> {
-    let raw = base
-        .0
-        .checked_add(offset)
-        .ok_or(MapperError::OutputAddressOverflow { base, offset })?;
-
-    Ok(PhysAddr(raw))
-}
-
-pub(super) fn mapping_size<F, G, AccessErrorKind, FrameErrorKind>(
-    level: Level,
-) -> Result<u64, MapperError<AccessErrorKind, FrameErrorKind>>
-where
-    F: DescriptorFormat,
-    G: TranslationGranule,
-{
-    let mask = TableGeometry::<F, G>::offset_at_level_raw(u64::MAX, level)
-        .ok_or(MapperError::InvalidLevel { level })?;
-
-    mask.checked_add(1)
-        .ok_or(MapperError::InvalidLevel { level })
 }
 
 pub(super) fn leaf_kind<F>(level: Level) -> WalkLeafKind

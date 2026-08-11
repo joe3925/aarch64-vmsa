@@ -109,9 +109,8 @@ pub(super) const fn checked_res1_mask(used: u128, bits: u32, fields: &[u128]) ->
     mask
 }
 
-// `descriptor_layout!` assigns one private bit to each descriptor view. Field
-// membership is represented only while evaluating constants; no runtime layout
-// value is generated.
+// `descriptor_layout!` gives one private bit to each descriptor view. The macro records field
+// membership only during constant evaluation. It does not make a runtime layout value.
 macro_rules! descriptor_view_tags {
     ($first:ident $(, $rest:ident)* $(,)?) => {
         const $first: u128 = 1;
@@ -191,7 +190,7 @@ macro_rules! descriptor_view {
     };
 }
 
-/// Use `descriptor_layout!` to define bit fields for one descriptor word.
+/// Use `descriptor_layout!` to define bit fields in one descriptor word.
 /// Different descriptor views can use the same bits.
 ///
 /// Use this syntax:
@@ -214,14 +213,14 @@ macro_rules! descriptor_view {
 /// }
 /// ```
 ///
-/// `bits` specifies the descriptor width. Use a value from 1 through 128.
-/// Each field must be in the specified low bits of a `u128`.
+/// `bits` gives the descriptor width. Use a value from 1 through 128.
+/// Each field must be in the low bits of a `u128`.
 ///
 /// A view is one interpretation of the descriptor word. Each item in `views`
 /// makes one module. The name after `as` is the view tag.
 ///
-/// The macro gives a different bit to each view tag. A view tag is only macro
-/// data. A view tag is not part of the encoded descriptor.
+/// The macro gives a different bit to each view tag. The macro uses a view tag only as macro data.
+/// The encoded descriptor does not contain a view tag.
 ///
 /// The macro also makes the private `ALL` tag. Use `ALL` to select all the
 /// specified views.
@@ -229,18 +228,18 @@ macro_rules! descriptor_view {
 /// Each item in `fields` makes one [`Field<LSB, WIDTH>`] constant. The first
 /// number is the least-significant bit. The second number is the field width.
 ///
-/// The expression after `in` selects the applicable views. Use one view tag for
-/// one view. Use `|` to join two or more view tags.
+/// The expression after `in` selects the applicable views. Use one view tag to select one view.
+/// Use `|` to select two or more view tags.
 ///
-/// Fields in the same view must not overlap. An overlap causes an error during
-/// compilation. Fields in different views can overlap.
+/// Fields in one view must not overlap. An overlap causes a compilation error.
+/// Fields in different views can overlap.
 ///
 /// The `res1` list is optional. It refers to fields in the `fields` section.
-/// All bits of each specified field must be one in that view. Each specified
-/// field must apply to that view.
+/// All bits of each specified field must be one in that view.
+/// The field must be applicable to that view.
 ///
-/// The macro makes `RES1_MASK` when a view has a `res1` list. Do not use a
-/// `res1` list when descriptor data controls the required-one bits.
+/// The macro makes `RES1_MASK` when a view has a `res1` list.
+/// When descriptor data controls the required-one bits, do not use a `res1` list.
 ///
 /// The macro makes these masks for each view:
 ///
@@ -248,14 +247,14 @@ macro_rules! descriptor_view {
 /// - `RES1_MASK` contains each field in the optional `res1` list.
 /// - A private mask contains each field that the view uses.
 ///
-/// During compilation, the macro does these checks:
+/// The macro does these checks during compilation:
 ///
 /// - Each field has a width greater than zero.
 /// - Each field is in the descriptor word.
-/// - Each field applies to one or more specified views.
+/// - Each field is applicable to one or more specified views.
 /// - Fields in one view do not overlap.
 /// - Fields in the `res1` list do not overlap.
-/// - Each field in the `res1` list applies to its view.
+/// - Each field in the `res1` list is applicable to its view.
 ///
 /// [`Field<LSB, WIDTH>`]: Field
 macro_rules! descriptor_layout {

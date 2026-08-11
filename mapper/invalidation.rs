@@ -2,13 +2,18 @@ use crate::address::TranslationGranule;
 use crate::descriptor::DescriptorFormat;
 use crate::table::{TableAccessLocation, TableAddr, TableAllocLayout};
 
-/// Performs architectural synchronization for mutations of a hardware-visible table.
+/// This trait synchronizes changes to a hardware-visible table.
 ///
 /// # Safety
-/// Implementations must apply the barriers, translation invalidations, walk-cache maintenance,
-/// CPU scope, and completion guarantees required by the active AArch64 translation regime.
-/// `before_table_frame_reclaim` and the following `synchronize` must make the frame unreachable
-/// by every hardware walker before it is returned to its provider.
+/// An implementation must obey the requirements of the active AArch64 translation regime.
+/// An implementation must apply the necessary barriers and translation invalidations.
+/// It must use the necessary CPU scope.
+/// It must do the necessary walk-cache maintenance.
+/// It must also complete these operations.
+///
+/// The `synchronize` call after `before_table_frame_reclaim` must make the frame unreachable to
+/// all hardware walkers.
+/// The provider can receive the frame only after this synchronization.
 pub unsafe trait MapperInvalidation<F, G>
 where
     F: DescriptorFormat,

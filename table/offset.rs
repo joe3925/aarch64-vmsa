@@ -17,10 +17,11 @@ pub struct DirectMapRegion {
 }
 
 impl DirectMapRegion {
-    /// Defines a direct-map region.
+    /// This function makes a direct-map region.
     ///
     /// # Safety
-    /// The complete address range must map to stable, initialized, writable memory at `offset`.
+    /// The full address range must map to stable, initialized, writable memory at `offset`.
+    /// All access to the address range must obey Rust aliasing rules.
     pub const unsafe fn from_raw_parts(offset: VirtAddr, table_start: u64, table_len: u64) -> Self {
         Self {
             offset,
@@ -80,7 +81,7 @@ impl OffsetTableAccess {
     }
 }
 
-// SAFETY: The region contract keeps each returned table readable for its borrow.
+// SAFETY: The region contract keeps each returned table readable during the borrow lifetime.
 unsafe impl<F, G> TableAccess<F, G> for OffsetTableAccess
 where
     F: DescriptorFormat,
@@ -95,12 +96,13 @@ where
         let ptr =
             self.table_ptr::<F, G>(location.addr(), location.shape().alloc_layout()?.bytes())?;
 
-        // SAFETY: guaranteed by the unsafe `TableAccess` implementation contract and constructor.
+        // SAFETY: The direct-map constructor contract gives access to the specified table shape.
         Ok(unsafe { TranslationTable::from_raw_parts(ptr, location.shape()) })
     }
 }
 
-// SAFETY: The region contract keeps each returned table readable for its borrow.
+// SAFETY: The region contract and mutable borrow give exclusive software access during the
+// borrow lifetime.
 unsafe impl<F, G> TableAccessMut<F, G> for OffsetTableAccess
 where
     F: DescriptorFormat,
@@ -113,7 +115,7 @@ where
         let ptr =
             self.table_ptr::<F, G>(location.addr(), location.shape().alloc_layout()?.bytes())?;
 
-        // SAFETY: guaranteed by the unsafe `TableAccessMut` implementation contract and constructor.
+        // SAFETY: The direct-map constructor contract gives access to the specified table shape.
         Ok(unsafe { TranslationTableMut::from_raw_parts(ptr, location.shape()) })
     }
 }

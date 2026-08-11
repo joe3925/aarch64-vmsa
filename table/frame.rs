@@ -20,12 +20,14 @@ impl<G: TranslationGranule> TableReclaim<G> {
     }
 }
 
-/// Allocates and reclaims memory used as translation tables.
+/// This trait allocates and reclaims memory that translation tables use.
 ///
 /// # Safety
-/// Every returned address must identify a distinct, zero-initialized allocation with the
-/// requested size and alignment. It must remain allocated and hardware-accessible until the
-/// provider receives the corresponding crate-issued [`TableReclaim`] token.
+/// Each returned address must identify one zero-initialized allocation.
+/// An active allocation must not overlap a different active allocation.
+/// The allocation must have the specified size and alignment.
+/// It must stay allocated and available to hardware until the provider receives the crate-issued
+/// [`TableReclaim`] token for the allocation.
 pub unsafe trait TableFrameProvider<G>
 where
     G: TranslationGranule,

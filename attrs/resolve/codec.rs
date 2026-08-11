@@ -4,7 +4,8 @@ use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::translation::TranslationStage;
 
-/// Converts between the semantic attributes and raw fields selected by a format and regime.
+/// This trait converts between semantic attributes and the raw fields that a format and regime
+/// select.
 pub trait AttributeCodec<R, G, Cfg>:
     DescriptorFormat
     + HasLayout<<R as TranslationRegime>::Stage, G>

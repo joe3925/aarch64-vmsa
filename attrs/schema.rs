@@ -12,18 +12,20 @@ use super::{
     Stage1PasModel, Stage2LeafPermissions, Stage2PasContext, Stage2Permission,
 };
 
-/// Associates a descriptor format with the family that defines its semantic attribute shapes.
+/// This trait selects the semantic-attribute family for a descriptor format.
 pub trait HasSemanticAttributeFamily: DescriptorFormat {
     type Family;
 }
 
-/// Selects semantic leaf and table types for an attribute family, stage, and regime.
+/// This trait selects semantic leaf and table types for an attribute family, translation stage,
+/// and regime.
 pub trait SemanticAttributeFamilyTypes<S, R> {
     type Leaf: Copy;
     type Table: Copy;
 }
 
-/// Selects semantic leaf and table types for a descriptor format, stage, and regime.
+/// This trait selects semantic leaf and table types for a descriptor format, translation stage,
+/// and regime.
 pub trait SemanticAttributeTypes<S, R>: DescriptorFormat {
     type Leaf: Copy;
     type Table: Copy;
@@ -38,11 +40,11 @@ where
     type Table = <F::Family as SemanticAttributeFamilyTypes<S, R>>::Table;
 }
 
-/// The semantic leaf attributes accepted for descriptor format `F` and regime `R`.
+/// This alias selects the semantic leaf-attribute type for descriptor format `F` and regime `R`.
 pub type SemanticLeafAttrs<F, R> =
     <F as SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>>::Leaf;
 
-/// The semantic table attributes accepted for descriptor format `F` and regime `R`.
+/// This alias selects the semantic table-attribute type for descriptor format `F` and regime `R`.
 pub type SemanticTableAttrs<F, R> =
     <F as SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>>::Table;
 

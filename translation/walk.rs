@@ -270,6 +270,10 @@ pub enum WalkCursorError {
     InvalidLevel {
         level: Level,
     },
+    InputAddressOutOfRange {
+        addr: u64,
+        addr_bits: u8,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,6 +337,10 @@ where
         self.root.level()
     }
 
+    pub const fn table_geometry(&self) -> TableGeometry<F, G> {
+        TableGeometry::new()
+    }
+
     pub const fn access(&self) -> &A {
         &self.access
     }
@@ -346,6 +354,14 @@ where
     }
 
     pub(crate) fn cursor(&self, input: WalkInputAddr) -> Result<WalkCursor<F, G>, WalkCursorError> {
+        let addr_bits = self.root.addr_bits();
+        if addr_bits < u64::BITS as u8 && input.raw() >> addr_bits != 0 {
+            return Err(WalkCursorError::InputAddressOutOfRange {
+                addr: input.raw(),
+                addr_bits,
+            });
+        }
+
         WalkCursor::new(input, self.root.addr(), self.root.level())
     }
 

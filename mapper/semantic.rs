@@ -24,9 +24,9 @@ where
     M: MapperMode<F, G>,
     RegimeLeafFields<F, R, G>: Copy,
 {
-    /// Encodes attributes and adds a mapping to an invalid entry.
+    /// This function encodes attributes and adds a mapping to an invalid entry.
     ///
-    /// This function does not make the mapped address safe to access.
+    /// This function does not make access to the mapped address safe.
     pub fn map_semantic_leaf<Cfg>(
         &mut self,
         config: &Cfg,
@@ -54,7 +54,8 @@ where
     R: TranslationRegime,
     G: TranslationGranule,
 {
-    /// Decodes this mapping's raw leaf fields using the supplied architectural configuration.
+    /// This function decodes the raw leaf fields of this mapping with the specified architectural
+    /// configuration.
     pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticLeafAttrs<F, R>, AttrError>
     where
         F: AttributeCodec<R, G, Cfg>,
@@ -69,7 +70,8 @@ where
     R: TranslationRegime,
     G: TranslationGranule,
 {
-    /// Decodes this leaf descriptor's raw fields using the supplied architectural configuration.
+    /// This function decodes the raw fields of this leaf descriptor with the specified
+    /// architectural configuration.
     pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticLeafAttrs<F, R>, AttrError>
     where
         F: AttributeCodec<R, G, Cfg>,
@@ -84,7 +86,8 @@ where
     R: TranslationRegime,
     G: TranslationGranule,
 {
-    /// Decodes this table descriptor's raw fields using the supplied architectural configuration.
+    /// This function decodes the raw fields of this table descriptor with the specified
+    /// architectural configuration.
     pub fn semantic_attrs<Cfg>(&self, config: &Cfg) -> Result<SemanticTableAttrs<F, R>, AttrError>
     where
         F: AttributeCodec<R, G, Cfg>,

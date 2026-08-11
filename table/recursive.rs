@@ -28,11 +28,12 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    /// Creates access through an active recursive mapping.
+    /// This function makes table access through an active recursive mapping.
     ///
     /// # Safety
-    /// The recursive mapping must stay active while this value exists. The mapping must give
-    /// valid access to the specified root and its child tables.
+    /// The recursive mapping must stay active while this value exists.
+    /// The mapping must give correct access to the specified root and its child tables.
+    /// All access through the recursive mapping must obey Rust aliasing rules.
     pub unsafe fn new(
         recursive_index: usize,
         recursive_base: VirtAddr,
@@ -105,6 +106,14 @@ where
         &self,
         location: TableAccessLocation<'_, F, G>,
     ) -> Result<NonNull<F::Raw>, AccessError> {
+        let actual_root = location.cursor().root_addr();
+        if actual_root.raw() != self.root.raw() {
+            return Err(AccessError::RecursiveRootMismatch {
+                expected: self.root.raw(),
+                actual: actual_root.raw(),
+            });
+        }
+
         if location.root_level() != self.root_level {
             return Err(AccessError::RecursiveLevelMismatch);
         }
@@ -160,7 +169,7 @@ where
     }
 }
 
-// SAFETY: The constructor contract keeps each returned table readable for its borrow.
+// SAFETY: The constructor contract keeps each returned table readable during the borrow lifetime.
 unsafe impl<F, G> TableAccess<F, G> for RecursiveTableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -175,12 +184,13 @@ where
         let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        // SAFETY: guaranteed by the recursive mapping contract established at construction.
+        // SAFETY: The recursive-mapping constructor contract gives access to this table shape.
         Ok(unsafe { TranslationTable::from_raw_parts(ptr, shape) })
     }
 }
 
-// SAFETY: The constructor contract keeps each returned table exclusively writable for its borrow.
+// SAFETY: The recursive-mapping contract and mutable borrow give exclusive software access
+// during the borrow lifetime.
 unsafe impl<F, G> TableAccessMut<F, G> for RecursiveTableAccess<F, G>
 where
     F: DescriptorFormat,
@@ -193,7 +203,7 @@ where
         let shape = location.shape();
         let ptr = self.table_ptr(location)?;
 
-        // SAFETY: guaranteed by the recursive mapping contract established at construction.
+        // SAFETY: The recursive-mapping constructor contract gives access to this table shape.
         Ok(unsafe { TranslationTableMut::from_raw_parts(ptr, shape) })
     }
 }

@@ -13,9 +13,7 @@ pub use self::plan::{
     TablePlanProvider,
 };
 pub use self::semantic::{SemanticMapperError, decode_semantic_leaf, decode_semantic_table};
-pub use self::types::{
-    MapLeafOutcome, MapRangeOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome,
-};
+pub use self::types::{MapLeafOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome};
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::{
@@ -24,15 +22,15 @@ use crate::descriptor::{
 use crate::regime::{RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{
     NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrameProvider,
-    TableReclaim, TableTransition,
+    TableGeometry, TableReclaim, TableTransition,
 };
 use crate::translation::WalkEntry;
 use crate::translation::walk::{ResolvedWalkLeaf, WalkCursor, WalkInputAddr, Walker};
 
 use self::error::map_walk_error;
 use self::validate::{
-    add_output, leaf_kind, mapping_size, require_aligned_input, require_aligned_output,
-    require_output_range, require_table_address,
+    leaf_kind, require_aligned_input, require_aligned_output, require_output_range,
+    require_table_address,
 };
 
 pub struct Mapper<F, R, G, A, P, M>
@@ -124,6 +122,11 @@ where
         self.root
     }
 
+    /// This function returns stateless table geometry for the format and granule of this mapper.
+    pub const fn table_geometry(&self) -> TableGeometry<F, G> {
+        TableGeometry::new()
+    }
+
     pub const fn access(&self) -> &A {
         &self.access
     }
@@ -151,9 +154,12 @@ where
         }
     }
 
-    /// Adds a mapping to an invalid entry.
+    /// This function adds a mapping to an invalid entry.
     ///
-    /// This function does not make the mapped address safe to access.
+    /// This function does not make access to the mapped address safe.
+    /// If this function returns an error after it adds intermediate table descriptors, the
+    /// empty tables stay allocated.
+    /// A subsequent mapping operation can use the empty tables.
     pub fn map_leaf(
         &mut self,
         input: WalkInputAddr,
@@ -171,6 +177,11 @@ where
         )
     }
 
+    /// This function adds a mapping with an intermediate-table plan from the caller.
+    ///
+    /// If this function returns an error after it adds intermediate table descriptors, the
+    /// empty tables stay allocated and reachable.
+    /// A subsequent mapping operation can use the allocated table path.
     pub fn map_leaf_with_plan<T>(
         &mut self,
         input: WalkInputAddr,
@@ -184,7 +195,8 @@ where
     {
         self.require_leaf_level(level)?;
 
-        let covered_size = mapping_size::<F, G, A::Error, P::Error>(level)?;
+        let covered_size =
+            TableGeometry::<F, G>::level_span(level).ok_or(MapperError::InvalidLevel { level })?;
         let kind = leaf_kind::<F>(level);
 
         require_aligned_input::<A::Error, P::Error>(input.raw(), covered_size)?;
@@ -334,83 +346,18 @@ where
         }
     }
 
-    pub fn map_range(
-        &mut self,
-        input_start: WalkInputAddr,
-        output_start: PhysAddr,
-        len: u64,
-        level: Level,
-        leaf_fields: RegimeLeafFields<F, R, G>,
-        table_fields: RegimeTableFields<F, R, G>,
-    ) -> Result<MapRangeOutcome, MapperError<A::Error, P::Error>> {
-        self.require_leaf_level(level)?;
-
-        if len == 0 {
-            return Ok(MapRangeOutcome {
-                mappings_created: 0,
-                bytes_mapped: 0,
-                tables_allocated: 0,
-            });
-        }
-
-        let mapping_size = mapping_size::<F, G, A::Error, P::Error>(level)?;
-
-        require_aligned_input::<A::Error, P::Error>(input_start.raw(), mapping_size)?;
-        require_aligned_output::<A::Error, P::Error>(output_start, mapping_size)?;
-
-        if len % mapping_size != 0 {
-            return Err(MapperError::LengthNotMappingMultiple { len, mapping_size });
-        }
-
-        self.require_input_range(input_start.raw(), len)?;
-        require_output_range::<A::Error, P::Error>(
-            output_start,
-            len,
-            self.root.output_addr_bits(),
-        )?;
-
-        let mut input = input_start.raw();
-        let mut output = output_start;
-        let mut mappings_created = 0u64;
-        let mut bytes_mapped = 0u64;
-        let mut tables_allocated = 0u64;
-
-        while bytes_mapped < len {
-            let outcome = self.map_leaf(
-                WalkInputAddr::new(input),
-                output,
-                level,
-                leaf_fields,
-                table_fields,
-            )?;
-
-            mappings_created = mappings_created
-                .checked_add(1)
-                .ok_or(MapperError::AddressOverflow)?;
-            bytes_mapped = bytes_mapped
-                .checked_add(mapping_size)
-                .ok_or(MapperError::AddressOverflow)?;
-            tables_allocated = tables_allocated
-                .checked_add(u64::from(outcome.tables_allocated()))
-                .ok_or(MapperError::AddressOverflow)?;
-            input = input
-                .checked_add(mapping_size)
-                .ok_or(MapperError::AddressOverflow)?;
-            output = add_output::<A::Error, P::Error>(output, mapping_size)?;
-        }
-
-        Ok(MapRangeOutcome {
-            mappings_created,
-            bytes_mapped,
-            tables_allocated,
-        })
-    }
-
-    /// Removes an existing leaf translation.
+    /// This function removes a leaf translation.
     ///
     /// # Safety
-    /// The caller must ensure that no live references, executing code, stacks, DMA users, guests,
-    /// or concurrent agents can use the affected translation during or after its removal.
+    /// The caller must make sure that these items cannot use this translation during or
+    /// after its removal:
+    ///
+    /// - Live references
+    /// - Executing code
+    /// - Stacks
+    /// - DMA users
+    /// - Guests
+    /// - Concurrent agents
     pub unsafe fn unmap(
         &mut self,
         input: WalkInputAddr,
@@ -441,11 +388,12 @@ where
         Ok(UnmapOutcome { old: old_mapping })
     }
 
-    /// Removes a leaf translation and reclaims newly unreachable table frames.
+    /// This function removes a leaf translation and reclaims table frames that became unreachable.
     ///
     /// # Safety
-    /// The requirements of [`Self::unmap`] apply. The caller must additionally ensure the live
-    /// invalidation implementation reaches every hardware walker before reclamation completes.
+    /// The caller must obey the requirements of [`Self::unmap`].
+    /// The caller must also make sure that no hardware walker can use a frame before the function
+    /// reclaims it.
     pub unsafe fn unmap_reclaim(
         &mut self,
         input: WalkInputAddr,
@@ -480,7 +428,9 @@ where
         leaf: ResolvedWalkLeaf<F, R, G>,
     ) -> Result<Mapping<F, R, G>, MapperError<A::Error, P::Error>> {
         let input = leaf.cursor().input();
-        let covered_size = mapping_size::<F, G, A::Error, P::Error>(leaf.level())?;
+        let level = leaf.level();
+        let covered_size =
+            TableGeometry::<F, G>::level_span(level).ok_or(MapperError::InvalidLevel { level })?;
         let covered_input_base = input.raw() & !(covered_size - 1);
         require_output_range::<A::Error, P::Error>(
             leaf.output_base(),
@@ -603,7 +553,8 @@ where
         input: WalkInputAddr,
         level: Level,
     ) -> Result<(), MapperError<A::Error, P::Error>> {
-        let covered_size = mapping_size::<F, G, A::Error, P::Error>(level)?;
+        let covered_size =
+            TableGeometry::<F, G>::level_span(level).ok_or(MapperError::InvalidLevel { level })?;
         let covered_input_base = input.raw() & !(covered_size - 1);
 
         if input.raw() == covered_input_base {

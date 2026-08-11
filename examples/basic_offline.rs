@@ -17,8 +17,8 @@ use aarch64_vmsa::granule::{Level, TranslationGranule};
 use aarch64_vmsa::mapper;
 use aarch64_vmsa::table::{
     AccessError, RootTable, RootTableGeometry, TableAccess, TableAccessLocation, TableAccessMut,
-    TableAddr, TableAllocLayout, TableFrameProvider, TableReclaim, TableShape, TranslationTable,
-    TranslationTableMut,
+    TableAddr, TableAllocLayout, TableFrameProvider, TableGeometry, TableReclaim, TableShape,
+    TranslationTable, TranslationTableMut,
 };
 
 use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, Walker};
@@ -34,7 +34,8 @@ impl Stage1MemoryConfig for ExampleConfig {
 struct TableProvider<G: TranslationGranule>(PhantomData<G>);
 struct TableAccessor<F: DescriptorFormat, G: TranslationGranule>(PhantomData<(F, G)>);
 
-// SAFETY: Each table has the requested size and alignment. Its memory stays available while used.
+// SAFETY: Each table has the specified size and alignment.
+// Its memory stays available while the code uses the table.
 unsafe impl<G: TranslationGranule> TableFrameProvider<G> for TableProvider<G> {
     type Error = LayoutError;
 
@@ -43,7 +44,7 @@ unsafe impl<G: TranslationGranule> TableFrameProvider<G> for TableProvider<G> {
         layout: TableAllocLayout,
     ) -> Result<TableAddr<G>, Self::Error> {
         let layout = Layout::from_size_align(layout.bytes() as usize, layout.align() as usize)?;
-        // SAFETY: The size and alignment are valid.
+        // SAFETY: The `Layout` constructor validated the size and alignment.
         let ptr = unsafe { alloc_zeroed(layout) };
         if ptr.is_null() {
             handle_alloc_error(layout);
@@ -54,13 +55,14 @@ unsafe impl<G: TranslationGranule> TableFrameProvider<G> for TableProvider<G> {
     fn reclaim_table(&mut self, reclaim: TableReclaim<G>) -> Result<(), Self::Error> {
         let layout = reclaim.layout();
         let layout = Layout::from_size_align(layout.bytes() as usize, layout.align() as usize)?;
-        // SAFETY: The address, size, and alignment match the allocated memory.
+        // SAFETY: The allocation operation used this address, size, and alignment.
         unsafe { dealloc(reclaim.addr().raw() as *mut u8, layout) };
         Ok(())
     }
 }
 
-// SAFETY: Each address points to table memory that stays available while the table is used.
+// SAFETY: Each address identifies table memory.
+// The memory stays available while the code uses the table.
 unsafe impl<F: DescriptorFormat, G: TranslationGranule> TableAccess<F, G> for TableAccessor<F, G> {
     type Error = AccessError;
 
@@ -150,19 +152,56 @@ fn main() {
         controls: SemanticVmsa64Stage1TableControls::default(),
     };
 
+    let page_span = TableGeometry::<Vmsa64, Granule4KiB>::level_span(Level::L3)
+        .expect("level 3 has a representable span");
+    let input_start = 0x100_000u64;
+    let output_start = 0x1000u64;
+
+    // The caller controls the range policy. This loop calculates each offset from the page number.
+    // Thus, it does not add the span to an address after the last mapping.
+    for page in 0u64..3 {
+        let offset = page
+            .checked_mul(page_span)
+            .expect("page range is representable");
+        let input = input_start
+            .checked_add(offset)
+            .expect("input range is representable");
+        let output = output_start
+            .checked_add(offset)
+            .expect("output range is representable");
+
+        mapper
+            .map_semantic_leaf(
+                &ExampleConfig,
+                WalkInputAddr::new(input),
+                PhysAddr(output),
+                Level::L3,
+                leaf_attrs,
+                table_attrs,
+            )
+            .expect("failed to map page");
+    }
+
+    // This call maps an L2 block leaf.
+    let block_span = TableGeometry::<Vmsa64, Granule4KiB>::level_span(Level::L2)
+        .expect("level 2 has a representable span");
+    assert_eq!(block_span, 2 * 1024 * 1024);
     mapper
         .map_semantic_leaf(
             &ExampleConfig,
-            WalkInputAddr::new(0x100_000),
-            PhysAddr(0x1000),
-            Level::L3,
+            WalkInputAddr::new(0x400_000),
+            PhysAddr(0x800_000),
+            Level::L2,
             leaf_attrs,
             table_attrs,
         )
-        .expect("failed to map page");
+        .expect("failed to map block");
+
+    let _mapper_geometry = mapper.table_geometry();
 
     {
         let walker = Walker::new(mapper.root(), mapper.access()).expect("failed to create walker");
+        let _walker_geometry = walker.table_geometry();
         let mut walk = walker.start();
 
         loop {
@@ -203,11 +242,18 @@ fn main() {
     }
 
     let mapping = mapper
-        .translate(WalkInputAddr::new(0x100_000))
+        .translate(WalkInputAddr::new(input_start))
         .expect("failed to walk mapping")
         .expect("mapping was not found");
     let decoded_attrs = mapping
         .semantic_attrs(&ExampleConfig)
         .expect("failed to decode semantic attributes");
     assert!(decoded_attrs == leaf_attrs);
+
+    let block_mapping = mapper
+        .translate(WalkInputAddr::new(0x400_000 + page_span))
+        .expect("failed to walk block mapping")
+        .expect("block mapping was not found");
+    assert_eq!(block_mapping.level(), Level::L2);
+    assert_eq!(block_mapping.covered_size(), block_span);
 }

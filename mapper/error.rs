@@ -64,10 +64,6 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
         addr: PhysAddr,
         align: u64,
     },
-    LengthNotMappingMultiple {
-        len: u64,
-        mapping_size: u64,
-    },
     InputNotLeafBase {
         input: WalkInputAddr,
         covered_input_base: u64,
