@@ -58,10 +58,43 @@ jobs:
         shell: bash
         working-directory: harness
         run: |
+          # GitHub invokes bash with -e. Disable it here so a failed stage can be
+          # recorded and reported before the final enforcement step fails the job.
+          set +e
           set -uo pipefail
 
           log="$GITHUB_WORKSPACE/harness-ci.log"
           : > "$log"
+
+          # Podman may auto-remove a short-lived --rm container between the
+          # harness existence check and its stop/kill fallback. Podman 4.9 then
+          # exits 125 even though cleanup succeeded. Normalize only that race;
+          # preserve the failure if the target container still exists.
+          real_podman=$(command -v podman)
+          podman_shim_dir="$RUNNER_TEMP/vmsa-podman-shim"
+          mkdir -p "$podman_shim_dir"
+          cat > "$podman_shim_dir/podman" <<'PODMAN_SHIM'
+          #!/usr/bin/env bash
+          "$VMSA_REAL_PODMAN" "$@"
+          status=$?
+          if [[ $status -ne 0 && ( "${1:-}" == "stop" || "${1:-}" == "kill" ) ]]; then
+            container_name="${!#}"
+            "$VMSA_REAL_PODMAN" container exists "$container_name" >/dev/null 2>&1
+            exists_status=$?
+            if [[ $exists_status -eq 1 ]]; then
+              exit 0
+            fi
+          fi
+          exit "$status"
+          PODMAN_SHIM
+          chmod +x "$podman_shim_dir/podman"
+          export VMSA_REAL_PODMAN="$real_podman"
+          export PATH="$podman_shim_dir:$PATH"
+
+          {
+            echo "runner_podman=$($VMSA_REAL_PODMAN --version)"
+            echo "podman_cleanup_race_normalized=true"
+          } >> "$GITHUB_WORKSPACE/ci-revisions.txt"
 
           run_and_capture() {
             "$@" 2>&1 | tee -a "$log"
@@ -189,6 +222,7 @@ jobs:
             echo "| Complete suite | \`${TEST_STATUS:-not-run}\` |"
             echo "| Overall | \`${OVERALL_STATUS:-not-run}\` |"
             echo "| Failed stage | \`${FAILED_STAGE:-unavailable}\` |"
+            echo "| Podman cleanup race handling | Failed stop/kill is accepted only when the container is confirmed absent |"
             if [[ -n "${ARTIFACT_URL:-}" ]]; then
               echo "| Diagnostics | [Download retained run artifacts]($ARTIFACT_URL) |"
             fi
