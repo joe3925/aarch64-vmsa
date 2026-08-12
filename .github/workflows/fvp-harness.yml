@@ -1,0 +1,258 @@
+name: FVP harness
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fvp-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fvp-harness:
+    name: aarch64-vmsa FVP harness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      NO_COLOR: "1"
+      RUST_BACKTRACE: "1"
+
+    steps:
+      - name: Check out aarch64-vmsa
+        uses: actions/checkout@v6
+        with:
+          path: crate
+          persist-credentials: false
+
+      - name: Check out test harness
+        uses: actions/checkout@v6
+        with:
+          repository: joe3925/aarch64-vmsa-test
+          ref: main
+          path: harness
+          persist-credentials: false
+
+      - name: Record tested revisions
+        id: revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          crate_sha=$(git -C "$GITHUB_WORKSPACE/crate" rev-parse HEAD)
+          harness_sha=$(git -C "$GITHUB_WORKSPACE/harness" rev-parse HEAD)
+          {
+            echo "crate_sha=$crate_sha"
+            echo "harness_sha=$harness_sha"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "crate_revision=$crate_sha"
+            echo "harness_repository=https://github.com/joe3925/aarch64-vmsa-test"
+            echo "harness_ref=main"
+            echo "harness_revision=$harness_sha"
+          } > "$GITHUB_WORKSPACE/ci-revisions.txt"
+
+      - name: Build and run test harness
+        id: harness
+        shell: bash
+        working-directory: harness
+        run: |
+          set -uo pipefail
+
+          log="$GITHUB_WORKSPACE/harness-ci.log"
+          : > "$log"
+
+          run_and_capture() {
+            "$@" 2>&1 | tee -a "$log"
+            local statuses=("${PIPESTATUS[@]}")
+            if [[ ${statuses[0]} -ne 0 ]]; then
+              return "${statuses[0]}"
+            fi
+            return "${statuses[1]}"
+          }
+
+          echo "==> Building aarch64-vmsa-test" | tee -a "$log"
+          run_and_capture cargo build --manifest-path host/Cargo.toml --release --locked
+          build_status=$?
+
+          doctor_status=not-run
+          test_status=not-run
+          overall_status=$build_status
+          failed_stage=build
+
+          if [[ $build_status -eq 0 ]]; then
+            echo "==> Running harness doctor" | tee -a "$log"
+            run_and_capture \
+              ./host/target/release/vmsa-test doctor \
+              --crate "$GITHUB_WORKSPACE/crate"
+            doctor_status=$?
+            overall_status=$doctor_status
+            failed_stage=doctor
+          fi
+
+          if [[ $build_status -eq 0 && $doctor_status -eq 0 ]]; then
+            echo "==> Running complete FVP suite" | tee -a "$log"
+            run_and_capture \
+              ./host/target/release/vmsa-test test all \
+              --crate "$GITHUB_WORKSPACE/crate" \
+              --keep \
+              --max-conc 3 \
+              --build-conc 3
+            test_status=$?
+            overall_status=$test_status
+            failed_stage=test
+          fi
+
+          if [[ $overall_status -eq 0 ]]; then
+            failed_stage=none
+          fi
+
+          {
+            echo "build_status=$build_status"
+            echo "doctor_status=$doctor_status"
+            echo "test_status=$test_status"
+            echo "overall_status=$overall_status"
+            echo "failed_stage=$failed_stage"
+          } >> "$GITHUB_OUTPUT"
+
+          # Reporting and artifact upload must run before the job is failed.
+          exit 0
+
+      - name: Upload failure diagnostics
+        id: diagnostics
+        if: always() && steps.harness.outputs.overall_status != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          name: fvp-harness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            harness/output/runs/
+            harness-ci.log
+            ci-revisions.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Publish harness summary
+        if: always()
+        shell: bash
+        env:
+          CRATE_SHA: ${{ steps.revisions.outputs.crate_sha }}
+          HARNESS_SHA: ${{ steps.revisions.outputs.harness_sha }}
+          BUILD_STATUS: ${{ steps.harness.outputs.build_status }}
+          DOCTOR_STATUS: ${{ steps.harness.outputs.doctor_status }}
+          TEST_STATUS: ${{ steps.harness.outputs.test_status }}
+          OVERALL_STATUS: ${{ steps.harness.outputs.overall_status }}
+          FAILED_STAGE: ${{ steps.harness.outputs.failed_stage }}
+          ARTIFACT_URL: ${{ steps.diagnostics.outputs.artifact-url }}
+        run: |
+          set -euo pipefail
+
+          failure_records="$RUNNER_TEMP/fvp-failure-records.txt"
+          : > "$failure_records"
+
+          if [[ -d "$GITHUB_WORKSPACE/harness/output/runs" ]]; then
+            while IFS= read -r -d '' results_file; do
+              relative=${results_file#"$GITHUB_WORKSPACE/harness/"}
+              awk -v source="$relative" '
+                /^@@VMSA RUN / {
+                  active = $3
+                }
+                /^@@VMSA (PASS|FAIL) / && $3 == active {
+                  active = ""
+                }
+                /^@@VMSA (FAIL|INFRA) / {
+                  print source ": " $0
+                }
+                END {
+                  if (active != "") {
+                    print source ": @@VMSA ACTIVE_AT_TERMINATION " active
+                  }
+                }
+              ' "$results_file" >> "$failure_records"
+            done < <(
+              find "$GITHUB_WORKSPACE/harness/output/runs" \
+                -type f -name results.log \
+                ! -path '*/session-*/*' -print0
+            )
+          fi
+          sort -u -o "$failure_records" "$failure_records"
+
+          {
+            echo "## aarch64-vmsa FVP harness"
+            echo
+            echo "| Item | Result |"
+            echo "| --- | --- |"
+            echo "| Crate revision | \`${CRATE_SHA:-unavailable}\` |"
+            echo "| Harness revision (main) | \`${HARNESS_SHA:-unavailable}\` |"
+            echo "| Build | \`${BUILD_STATUS:-not-run}\` |"
+            echo "| Doctor | \`${DOCTOR_STATUS:-not-run}\` |"
+            echo "| Complete suite | \`${TEST_STATUS:-not-run}\` |"
+            echo "| Overall | \`${OVERALL_STATUS:-not-run}\` |"
+            echo "| Failed stage | \`${FAILED_STAGE:-unavailable}\` |"
+            if [[ -n "${ARTIFACT_URL:-}" ]]; then
+              echo "| Diagnostics | [Download retained run artifacts]($ARTIFACT_URL) |"
+            fi
+            echo
+            echo "### Exact failures"
+            echo
+            if [[ -s "$failure_records" ]]; then
+              echo '````text'
+              cat "$failure_records"
+              echo '````'
+            elif [[ "${OVERALL_STATUS:-1}" == "0" ]]; then
+              echo "No failing tests or infrastructure records."
+            else
+              echo "No test-level failure record was emitted. See the outcome summaries and harness output below for the setup, build, timeout, or infrastructure failure."
+            fi
+            echo
+            echo "### Retained run summaries"
+            echo
+            summaries_found=0
+            if [[ -d "$GITHUB_WORKSPACE/harness/output/runs" ]]; then
+              while IFS= read -r -d '' summary_file; do
+                summaries_found=1
+                relative=${summary_file#"$GITHUB_WORKSPACE/harness/"}
+                echo "#### \`$relative\`"
+                echo
+                echo '````text'
+                cat "$summary_file"
+                echo '````'
+                echo
+              done < <(
+                find "$GITHUB_WORKSPACE/harness/output/runs" \
+                  -type f -name summary.txt -print0 | sort -z
+              )
+            fi
+            if [[ $summaries_found -eq 0 ]]; then
+              echo "No per-run summary was produced."
+              echo
+            fi
+            echo "<details>"
+            echo "<summary>Complete harness console output</summary>"
+            echo
+            echo '````text'
+            if [[ -f "$GITHUB_WORKSPACE/harness-ci.log" ]]; then
+              cat "$GITHUB_WORKSPACE/harness-ci.log"
+            else
+              echo "Harness execution did not start, so no console log was produced."
+            fi
+            echo '````'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce harness result
+        if: always()
+        shell: bash
+        env:
+          OVERALL_STATUS: ${{ steps.harness.outputs.overall_status }}
+          FAILED_STAGE: ${{ steps.harness.outputs.failed_stage }}
+        run: |
+          if [[ -z "${OVERALL_STATUS:-}" ]]; then
+            echo "::error::The harness did not produce an exit status."
+            exit 1
+          fi
+          if [[ "$OVERALL_STATUS" != "0" ]]; then
+            echo "::error title=FVP harness failed::Stage $FAILED_STAGE exited with status $OVERALL_STATUS."
+            exit "$OVERALL_STATUS"
+          fi
+          echo "FVP harness passed."
