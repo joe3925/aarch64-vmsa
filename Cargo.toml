@@ -4,9 +4,6 @@ name = "aarch64-vmsa"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-path = "lib.rs"
-
 [dependencies]
 portable-atomic = { version = "1.13.1", default-features = false }
 strum = { version = "0.28.0", default-features = false, features = ["derive"] }

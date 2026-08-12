@@ -157,8 +157,6 @@ fn main() {
     let input_start = 0x100_000u64;
     let output_start = 0x1000u64;
 
-    // The caller controls the range policy. This loop calculates each offset from the page number.
-    // Thus, it does not add the span to an address after the last mapping.
     for page in 0u64..3 {
         let offset = page
             .checked_mul(page_span)
@@ -182,7 +180,6 @@ fn main() {
             .expect("failed to map page");
     }
 
-    // This call maps an L2 block leaf.
     let block_span = TableGeometry::<Vmsa64, Granule4KiB>::level_span(Level::L2)
         .expect("level 2 has a representable span");
     assert_eq!(block_span, 2 * 1024 * 1024);
@@ -254,6 +251,6 @@ fn main() {
         .translate(WalkInputAddr::new(0x400_000 + page_span))
         .expect("failed to walk block mapping")
         .expect("block mapping was not found");
-    assert_eq!(block_mapping.level(), Level::L2);
-    assert_eq!(block_mapping.covered_size(), block_span);
+    assert!(block_mapping.level() == Level::L2);
+    assert!(block_mapping.covered_size() == block_span);
 }
