@@ -3,20 +3,61 @@ use crate::attrs::{
     AllocationHints, AttrError, CachePolicy, Cacheability, DeviceMemoryType, FourBit,
     FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes, ThreeBit,
 };
+use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::descriptor::DescriptorFormat;
+use crate::translation::{Stage1, Stage2, TranslationStage};
 
-pub(crate) trait Stage1MemoryResolver<C: Stage1MemoryConfig> {
-    type RawMemory: Copy;
-
-    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError>;
-    fn decode(config: &C, raw: Self::RawMemory) -> Result<MemoryAttributes, AttrError>;
+pub(crate) trait HasMemoryCodec<S>: DescriptorFormat
+where
+    S: TranslationStage,
+{
+    type Codec;
 }
 
-pub(crate) struct Vmsa64Stage1Memory;
+pub(crate) trait MemoryAttributeCodec<S, Cfg>
+where
+    S: TranslationStage,
+{
+    type Semantic: Copy;
+    type Raw: Copy;
 
-impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa64Stage1Memory {
-    type RawMemory = ThreeBit;
+    fn encode(config: &Cfg, attrs: Self::Semantic) -> Result<Self::Raw, AttrError>;
+    fn decode(config: &Cfg, raw: Self::Raw) -> Result<Self::Semantic, AttrError>;
+}
 
-    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError> {
+pub(crate) struct Mair8Memory;
+pub(crate) struct Mair16Memory;
+pub(crate) struct DirectStage2Memory;
+
+impl HasMemoryCodec<Stage1> for Vmsa64 {
+    type Codec = Mair8Memory;
+}
+
+impl HasMemoryCodec<Stage1> for Vmsa64Lpa2 {
+    type Codec = Mair8Memory;
+}
+
+impl HasMemoryCodec<Stage1> for Vmsa128 {
+    type Codec = Mair16Memory;
+}
+
+impl HasMemoryCodec<Stage2> for Vmsa64 {
+    type Codec = DirectStage2Memory;
+}
+
+impl HasMemoryCodec<Stage2> for Vmsa64Lpa2 {
+    type Codec = DirectStage2Memory;
+}
+
+impl HasMemoryCodec<Stage2> for Vmsa128 {
+    type Codec = DirectStage2Memory;
+}
+
+impl<C: Stage1MemoryConfig> MemoryAttributeCodec<Stage1, C> for Mair8Memory {
+    type Semantic = MemoryAttributes;
+    type Raw = ThreeBit;
+
+    fn encode(config: &C, attrs: Self::Semantic) -> Result<Self::Raw, AttrError> {
         let wanted = encode_mair_attribute(attrs)?;
         for index in 0..8 {
             if mair_entry(config.mair(), index) == wanted {
@@ -26,18 +67,17 @@ impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa64Stage1Memory {
         Err(AttrError::MemoryAttributeNotConfigured)
     }
 
-    fn decode(config: &C, index: Self::RawMemory) -> Result<MemoryAttributes, AttrError> {
+    fn decode(config: &C, index: Self::Raw) -> Result<Self::Semantic, AttrError> {
         decode_mair_attribute(mair_entry(config.mair(), index.bits()))
             .ok_or(AttrError::UnencodableMemoryAttribute)
     }
 }
 
-pub(crate) struct Vmsa128Stage1Memory;
+impl<C: Stage1MemoryConfig> MemoryAttributeCodec<Stage1, C> for Mair16Memory {
+    type Semantic = MemoryAttributes;
+    type Raw = FourBit;
 
-impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa128Stage1Memory {
-    type RawMemory = FourBit;
-
-    fn resolve(config: &C, attrs: MemoryAttributes) -> Result<Self::RawMemory, AttrError> {
+    fn encode(config: &C, attrs: Self::Semantic) -> Result<Self::Raw, AttrError> {
         let wanted = encode_mair_attribute(attrs)?;
         for index in 0..8 {
             if mair_entry(config.mair(), index) == wanted {
@@ -54,7 +94,7 @@ impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa128Stage1Memory {
         Err(AttrError::MemoryAttributeNotConfigured)
     }
 
-    fn decode(config: &C, index: Self::RawMemory) -> Result<MemoryAttributes, AttrError> {
+    fn decode(config: &C, index: Self::Raw) -> Result<Self::Semantic, AttrError> {
         let entry = if index.bits() < 8 {
             mair_entry(config.mair(), index.bits())
         } else {
@@ -67,34 +107,34 @@ impl<C: Stage1MemoryConfig> Stage1MemoryResolver<C> for Vmsa128Stage1Memory {
     }
 }
 
-pub fn resolve_stage2_memory<C: Stage2MemoryConfig>(
-    config: &C,
-    attrs: Stage2MemoryAttributes,
-) -> Result<FourBit, AttrError> {
-    let bits = match (config.stage2_memory_mode(), attrs) {
-        (Stage2MemoryMode::FwbDisabled, Stage2MemoryAttributes::Combined(attrs)) => {
-            encode_stage2_combined(attrs)?
-        }
-        (Stage2MemoryMode::FwbEnabled { mte_permission }, Stage2MemoryAttributes::Fwb(attrs)) => {
-            encode_stage2_fwb(attrs, mte_permission)?
-        }
-        _ => return Err(AttrError::WrongStage2MemoryMode),
-    };
-    FourBit::new(bits)
-}
+impl<C: Stage2MemoryConfig> MemoryAttributeCodec<Stage2, C> for DirectStage2Memory {
+    type Semantic = Stage2MemoryAttributes;
+    type Raw = FourBit;
 
-pub fn decode_stage2_memory<C: Stage2MemoryConfig>(
-    config: &C,
-    encoding: FourBit,
-) -> Result<Stage2MemoryAttributes, AttrError> {
-    match config.stage2_memory_mode() {
-        Stage2MemoryMode::FwbDisabled => decode_stage2_combined(encoding.bits())
-            .map(Stage2MemoryAttributes::Combined)
-            .ok_or(AttrError::UnencodableMemoryAttribute),
-        Stage2MemoryMode::FwbEnabled { mte_permission } => {
-            decode_stage2_fwb(encoding.bits(), mte_permission)
-                .map(Stage2MemoryAttributes::Fwb)
-                .ok_or(AttrError::UnencodableMemoryAttribute)
+    fn encode(config: &C, attrs: Self::Semantic) -> Result<Self::Raw, AttrError> {
+        let bits = match (config.stage2_memory_mode(), attrs) {
+            (Stage2MemoryMode::FwbDisabled, Stage2MemoryAttributes::Combined(attrs)) => {
+                encode_stage2_combined(attrs)?
+            }
+            (
+                Stage2MemoryMode::FwbEnabled { mte_permission },
+                Stage2MemoryAttributes::Fwb(attrs),
+            ) => encode_stage2_fwb(attrs, mte_permission)?,
+            _ => return Err(AttrError::WrongStage2MemoryMode),
+        };
+        FourBit::new(bits)
+    }
+
+    fn decode(config: &C, encoding: Self::Raw) -> Result<Self::Semantic, AttrError> {
+        match config.stage2_memory_mode() {
+            Stage2MemoryMode::FwbDisabled => decode_stage2_combined(encoding.bits())
+                .map(Stage2MemoryAttributes::Combined)
+                .ok_or(AttrError::UnencodableMemoryAttribute),
+            Stage2MemoryMode::FwbEnabled { mte_permission } => {
+                decode_stage2_fwb(encoding.bits(), mte_permission)
+                    .map(Stage2MemoryAttributes::Fwb)
+                    .ok_or(AttrError::UnencodableMemoryAttribute)
+            }
         }
     }
 }

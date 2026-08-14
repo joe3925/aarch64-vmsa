@@ -4,6 +4,8 @@ use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::translation::TranslationStage;
 
+use super::{HasMemoryCodec, MemoryAttributeCodec};
+
 /// This trait converts between semantic attributes and the raw fields that a format and regime
 /// select.
 pub trait AttributeCodec<R, G, Cfg>:
@@ -41,7 +43,11 @@ where
 
 pub(super) trait AttributeCodecCell<F, R, G, Cfg>: TranslationStage
 where
-    F: DescriptorFormat + HasLayout<Self, G> + SemanticAttributeTypes<Self, R>,
+    F: DescriptorFormat
+        + HasLayout<Self, G>
+        + HasMemoryCodec<Self>
+        + SemanticAttributeTypes<Self, R>,
+    F::Codec: MemoryAttributeCodec<Self, Cfg>,
     R: TranslationRegime<Stage = Self>,
     G: TranslationGranule,
 {
@@ -74,7 +80,9 @@ impl<F, R, G, Cfg> AttributeCodec<R, G, Cfg> for F
 where
     F: DescriptorFormat
         + HasLayout<<R as TranslationRegime>::Stage, G>
+        + HasMemoryCodec<<R as TranslationRegime>::Stage>
         + SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>,
+    F::Codec: MemoryAttributeCodec<<R as TranslationRegime>::Stage, Cfg>,
     R: TranslationRegime,
     G: TranslationGranule,
     R::Stage: AttributeCodecCell<F, R, G, Cfg>,

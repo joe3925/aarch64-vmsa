@@ -12,14 +12,16 @@ use super::{
     Stage1PasModel, Stage2LeafPermissions, Stage2PasContext, Stage2Permission,
 };
 
-/// This trait selects the semantic-attribute family for a descriptor format.
-pub trait HasSemanticAttributeFamily: DescriptorFormat {
-    type Family;
+/// Selects the semantic schema exposed by a descriptor format.
+///
+/// Sharing a schema only means that formats expose the same semantic leaf and table types. It
+/// does not imply that they use the same raw encoding or descriptor layout.
+pub trait HasSemanticSchema: DescriptorFormat {
+    type Schema;
 }
 
-/// This trait selects semantic leaf and table types for an attribute family, translation stage,
-/// and regime.
-pub trait SemanticAttributeFamilyTypes<S, R> {
+/// Selects semantic leaf and table types for a schema, translation stage, and regime.
+pub trait SemanticSchemaTypes<S, R> {
     type Leaf: Copy;
     type Table: Copy;
 }
@@ -33,11 +35,11 @@ pub trait SemanticAttributeTypes<S, R>: DescriptorFormat {
 
 impl<F, S, R> SemanticAttributeTypes<S, R> for F
 where
-    F: HasSemanticAttributeFamily,
-    F::Family: SemanticAttributeFamilyTypes<S, R>,
+    F: HasSemanticSchema,
+    F::Schema: SemanticSchemaTypes<S, R>,
 {
-    type Leaf = <F::Family as SemanticAttributeFamilyTypes<S, R>>::Leaf;
-    type Table = <F::Family as SemanticAttributeFamilyTypes<S, R>>::Table;
+    type Leaf = <F::Schema as SemanticSchemaTypes<S, R>>::Leaf;
+    type Table = <F::Schema as SemanticSchemaTypes<S, R>>::Table;
 }
 
 /// This alias selects the semantic leaf-attribute type for descriptor format `F` and regime `R`.
@@ -49,24 +51,24 @@ pub type SemanticTableAttrs<F, R> =
     <F as SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>>::Table;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa64SemanticFamily;
+pub struct Vmsa64SemanticSchema;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa128SemanticFamily;
+pub struct Vmsa128SemanticSchema;
 
-impl HasSemanticAttributeFamily for Vmsa64 {
-    type Family = Vmsa64SemanticFamily;
+impl HasSemanticSchema for Vmsa64 {
+    type Schema = Vmsa64SemanticSchema;
 }
 
-impl HasSemanticAttributeFamily for Vmsa64Lpa2 {
-    type Family = Vmsa64SemanticFamily;
+impl HasSemanticSchema for Vmsa64Lpa2 {
+    type Schema = Vmsa64SemanticSchema;
 }
 
-impl HasSemanticAttributeFamily for Vmsa128 {
-    type Family = Vmsa128SemanticFamily;
+impl HasSemanticSchema for Vmsa128 {
+    type Schema = Vmsa128SemanticSchema;
 }
 
-impl<R> SemanticAttributeFamilyTypes<Stage1, R> for Vmsa64SemanticFamily
+impl<R> SemanticSchemaTypes<Stage1, R> for Vmsa64SemanticSchema
 where
     R: Stage1Regime<Stage = Stage1>,
     R::PasModel: Stage1PasModel,
@@ -84,7 +86,7 @@ where
     >;
 }
 
-impl<R> SemanticAttributeFamilyTypes<Stage2, R> for Vmsa64SemanticFamily
+impl<R> SemanticSchemaTypes<Stage2, R> for Vmsa64SemanticSchema
 where
     R: Stage2Regime<Stage = Stage2>,
     R::PasModel: Stage2PasContext,
@@ -98,7 +100,7 @@ where
     type Table = SemanticVmsa64Stage2TableAttrs;
 }
 
-impl<R> SemanticAttributeFamilyTypes<Stage1, R> for Vmsa128SemanticFamily
+impl<R> SemanticSchemaTypes<Stage1, R> for Vmsa128SemanticSchema
 where
     R: Stage1Regime<Stage = Stage1>,
     R::PasModel: Stage1PasModel,
@@ -112,7 +114,7 @@ where
     type Table = SemanticVmsa128Stage1TableAttrs<<R::PasModel as Stage1PasModel>::TableAttr>;
 }
 
-impl<R> SemanticAttributeFamilyTypes<Stage2, R> for Vmsa128SemanticFamily
+impl<R> SemanticSchemaTypes<Stage2, R> for Vmsa128SemanticSchema
 where
     R: Stage2Regime<Stage = Stage2>,
     R::PasModel: Stage2PasContext,

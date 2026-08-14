@@ -13,10 +13,9 @@ use crate::translation::{Stage1, Stage2};
 
 use super::codec::AttributeCodecCell;
 use super::{
-    RawStage1LeafPas, Stage1MemoryConfig, Stage1MemoryResolver, Stage1PasResolver,
+    HasMemoryCodec, MemoryAttributeCodec, RawStage1LeafPas, Stage1MemoryConfig, Stage1PasResolver,
     Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PasResolver,
-    Stage2PermissionConfig, Stage2PermissionResolver, Vmsa128Stage1Memory, decode_shareability,
-    decode_stage2_memory, resolve_stage2_memory,
+    Stage2PermissionConfig, Stage2PermissionResolver, decode_shareability,
 };
 
 impl<R, G, Cfg> AttributeCodecCell<Vmsa128, R, G, Cfg> for Stage1
@@ -50,7 +49,7 @@ where
         } else {
             return Err(AttrError::InvalidD128Alias);
         };
-        let attr_index = Vmsa128Stage1Memory::resolve(config, attrs.memory)?;
+        let attr_index = <Vmsa128 as HasMemoryCodec<Stage1>>::Codec::encode(config, attrs.memory)?;
         let permissions = Stage1PermissionResolver::new(config).resolve(attrs.permissions)?;
         let shareability = RawShareability::from_bits(attrs.controls.shareability as u8)?;
         let software = software_ten(attrs.controls.software)?;
@@ -111,7 +110,7 @@ where
         };
 
         Ok(SemanticStage1LeafAttrs {
-            memory: Vmsa128Stage1Memory::decode(config, raw.attr_index)?,
+            memory: <Vmsa128 as HasMemoryCodec<Stage1>>::Codec::decode(config, raw.attr_index)?,
             permissions: Stage1PermissionResolver::new(config).decode(raw.permissions)?,
             pas: R::PasModel::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
             controls: SemanticVmsa128Stage1LeafControls {
@@ -159,7 +158,7 @@ where
         let mut software = software_ten(attrs.controls.software)?;
         let ns = R::PasModel::resolve(config, attrs.output_address_space, &mut software)?;
         require_nt(level, attrs.controls.bbm_nt)?;
-        let mem_attr = resolve_stage2_memory(config, attrs.memory)?;
+        let mem_attr = <Vmsa128 as HasMemoryCodec<Stage2>>::Codec::encode(config, attrs.memory)?;
         let permissions = Stage2PermissionResolver::new(config).resolve(attrs.permissions)?;
         let shareability = RawShareability::from_bits(attrs.controls.shareability as u8)?;
         Ok(RawVmsa128Stage2LeafAttrs {
@@ -198,7 +197,7 @@ where
         let mut software = raw.software;
         let output_address_space = R::PasModel::decode(config, raw.ns, &mut software)?;
         Ok(SemanticStage2LeafAttrs {
-            memory: decode_stage2_memory(config, raw.mem_attr)?,
+            memory: <Vmsa128 as HasMemoryCodec<Stage2>>::Codec::decode(config, raw.mem_attr)?,
             permissions: Stage2PermissionResolver::new(config).decode(raw.permissions)?,
             output_address_space,
             controls: SemanticVmsa128Stage2LeafControls {
