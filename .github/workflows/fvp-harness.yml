@@ -58,18 +58,13 @@ jobs:
         shell: bash
         working-directory: harness
         run: |
-          # GitHub invokes bash with -e. Disable it here so a failed stage can be
-          # recorded and reported before the final enforcement step fails the job.
+
           set +e
           set -uo pipefail
 
           log="$GITHUB_WORKSPACE/harness-ci.log"
           : > "$log"
 
-          # Podman may auto-remove a short-lived --rm container between the
-          # harness existence check and its stop/kill fallback. Podman 4.9 then
-          # exits 125 even though cleanup succeeded. Normalize only that race;
-          # preserve the failure if the target container still exists.
           real_podman=$(command -v podman)
           podman_shim_dir="$RUNNER_TEMP/vmsa-podman-shim"
           mkdir -p "$podman_shim_dir"
@@ -130,7 +125,7 @@ jobs:
               ./host/target/release/vmsa-test test all \
               --crate "$GITHUB_WORKSPACE/crate" \
               --keep \
-              --max-conc 3 \
+              --max-conc 1 \
               --build-conc 3
             test_status=$?
             overall_status=$test_status
