@@ -14,7 +14,7 @@ concurrency:
 jobs:
   fvp-harness:
     name: aarch64-vmsa FVP harness
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     env:
       NO_COLOR: "1"
