@@ -125,7 +125,7 @@ jobs:
               ./host/target/release/vmsa-test test all \
               --crate "$GITHUB_WORKSPACE/crate" \
               --keep \
-              --max-conc 1 \
+              --max-conc 4 \
               --build-conc 3
             test_status=$?
             overall_status=$test_status
@@ -217,7 +217,6 @@ jobs:
             echo "| Complete suite | \`${TEST_STATUS:-not-run}\` |"
             echo "| Overall | \`${OVERALL_STATUS:-not-run}\` |"
             echo "| Failed stage | \`${FAILED_STAGE:-unavailable}\` |"
-            echo "| Podman cleanup race handling | Failed stop/kill is accepted only when the container is confirmed absent |"
             if [[ -n "${ARTIFACT_URL:-}" ]]; then
               echo "| Diagnostics | [Download retained run artifacts]($ARTIFACT_URL) |"
             fi
