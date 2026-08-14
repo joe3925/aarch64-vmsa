@@ -126,7 +126,7 @@ jobs:
               --crate "$GITHUB_WORKSPACE/crate" \
               --keep \
               --max-conc 4 \
-              --build-conc 3
+              --build-conc 4
             test_status=$?
             overall_status=$test_status
             failed_stage=test
