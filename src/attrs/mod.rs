@@ -12,9 +12,8 @@ pub(crate) use pas::{
 };
 pub use pas::{RealmOrNonSecurePa, RootExtendedPa, SecureSelectablePa};
 pub use permissions::{
-    DataAccess, MostlyReadOnly, SinglePrivilegeLeafPermissions,
-    SinglePrivilegeTablePermissionLimits, Stage1EffectivePermissions, Stage2LeafPermissions,
-    Stage2Permission, TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissionLimits,
+    DataAccess, MostlyReadOnly, SinglePrivilegeTablePermissionLimits, Stage1EffectivePermissions,
+    Stage2Permission, TwoPrivilegeTablePermissionLimits,
 };
 pub(crate) use permissions::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, PrivilegeModel,
@@ -23,9 +22,9 @@ pub(crate) use permissions::{
 pub(crate) use raw::*;
 pub use resolve::{
     AttributeCodec, D128AliasConfig, LiveVmsaConfig, PasConfig, ShareabilityConfig,
-    Stage1MemoryConfig, Stage1PermissionConfig, Stage1PermissionRegisterPair,
-    Stage1PermissionRegisters, Stage2MemoryConfig, Stage2MemoryMode, Stage2PermissionConfig,
-    Stage2PermissionRegisters,
+    Stage1BasePermissions, Stage1MemoryConfig, Stage1PermissionConfig, Stage1PermissionOverlays,
+    Stage1PermissionRegisters, Stage1PermissionSettings, Stage2BasePermissions, Stage2MemoryConfig,
+    Stage2MemoryMode, Stage2PermissionConfig, Stage2PermissionRegisters, Stage2PermissionSettings,
 };
 pub use schema::{SemanticAttributeTypes, SemanticLeafAttrs, SemanticTableAttrs};
 pub use semantic::*;
@@ -51,6 +50,7 @@ pub enum AttrError {
     MtePermissionUnavailable,
     PermissionIndirectionUnavailable,
     PermissionCombinationNotConfigured,
+    PermissionModeMismatch,
     InvalidD128Alias,
     InvalidD128Configuration,
     ConflictingSemanticAttributes,

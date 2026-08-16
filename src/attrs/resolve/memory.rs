@@ -1,7 +1,7 @@
 use super::{Stage1MemoryConfig, Stage2MemoryConfig, Stage2MemoryMode};
 use crate::attrs::{
     AllocationHints, AttrError, CachePolicy, Cacheability, DeviceMemoryType, FourBit,
-    FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes, ThreeBit,
+    FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes,
 };
 use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::descriptor::DescriptorFormat;
@@ -25,20 +25,19 @@ where
     fn decode(config: &Cfg, raw: Self::Raw) -> Result<Self::Semantic, AttrError>;
 }
 
-pub(crate) struct Mair8Memory;
-pub(crate) struct Mair16Memory;
+pub(crate) struct MairMemory<const IGNORE_HIGH_WITHOUT_MAIR2: bool>;
 pub(crate) struct DirectStage2Memory;
 
 impl HasMemoryCodec<Stage1> for Vmsa64 {
-    type Codec = Mair8Memory;
+    type Codec = MairMemory<true>;
 }
 
 impl HasMemoryCodec<Stage1> for Vmsa64Lpa2 {
-    type Codec = Mair8Memory;
+    type Codec = MairMemory<true>;
 }
 
 impl HasMemoryCodec<Stage1> for Vmsa128 {
-    type Codec = Mair16Memory;
+    type Codec = MairMemory<false>;
 }
 
 impl HasMemoryCodec<Stage2> for Vmsa64 {
@@ -53,27 +52,9 @@ impl HasMemoryCodec<Stage2> for Vmsa128 {
     type Codec = DirectStage2Memory;
 }
 
-impl<C: Stage1MemoryConfig> MemoryAttributeCodec<Stage1, C> for Mair8Memory {
-    type Semantic = MemoryAttributes;
-    type Raw = ThreeBit;
-
-    fn encode(config: &C, attrs: Self::Semantic) -> Result<Self::Raw, AttrError> {
-        let wanted = encode_mair_attribute(attrs)?;
-        for index in 0..8 {
-            if mair_entry(config.mair(), index) == wanted {
-                return ThreeBit::new(index);
-            }
-        }
-        Err(AttrError::MemoryAttributeNotConfigured)
-    }
-
-    fn decode(config: &C, index: Self::Raw) -> Result<Self::Semantic, AttrError> {
-        decode_mair_attribute(mair_entry(config.mair(), index.bits()))
-            .ok_or(AttrError::UnencodableMemoryAttribute)
-    }
-}
-
-impl<C: Stage1MemoryConfig> MemoryAttributeCodec<Stage1, C> for Mair16Memory {
+impl<C: Stage1MemoryConfig, const IGNORE_HIGH_WITHOUT_MAIR2: bool> MemoryAttributeCodec<Stage1, C>
+    for MairMemory<IGNORE_HIGH_WITHOUT_MAIR2>
+{
     type Semantic = MemoryAttributes;
     type Raw = FourBit;
 
@@ -95,12 +76,17 @@ impl<C: Stage1MemoryConfig> MemoryAttributeCodec<Stage1, C> for Mair16Memory {
     }
 
     fn decode(config: &C, index: Self::Raw) -> Result<Self::Semantic, AttrError> {
-        let entry = if index.bits() < 8 {
-            mair_entry(config.mair(), index.bits())
+        let index = if IGNORE_HIGH_WITHOUT_MAIR2 && config.mair2().is_none() {
+            index.bits() & 7
+        } else {
+            index.bits()
+        };
+        let entry = if index < 8 {
+            mair_entry(config.mair(), index)
         } else {
             mair_entry(
                 config.mair2().ok_or(AttrError::Mair2Unavailable)?,
-                index.bits() - 8,
+                index - 8,
             )
         };
         decode_mair_attribute(entry).ok_or(AttrError::UnencodableMemoryAttribute)

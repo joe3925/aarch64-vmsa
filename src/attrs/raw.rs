@@ -88,10 +88,6 @@ impl LeafAp {
     pub const fn bits(self) -> u8 {
         self.0
     }
-
-    pub(crate) const fn from_masked(bits: u128) -> Self {
-        Self((bits & 0b11) as u8)
-    }
 }
 
 #[repr(transparent)]
@@ -132,10 +128,6 @@ impl Stage2Ap {
     pub const fn bits(self) -> u8 {
         self.0
     }
-
-    pub(crate) const fn from_masked(bits: u128) -> Self {
-        Self((bits & 0b11) as u8)
-    }
 }
 
 #[repr(transparent)]
@@ -153,10 +145,6 @@ impl Stage2ExecuteNever {
 
     pub const fn bits(self) -> u8 {
         self.0
-    }
-
-    pub(crate) const fn from_masked(bits: u128) -> Self {
-        Self((bits & 0b11) as u8)
     }
 }
 
@@ -210,29 +198,34 @@ impl Stage2Dirty {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct PermissionIndices {
+pub struct PermissionIndices<I = FourBit> {
     pub pi: FourBit,
-    pub po: FourBit,
+    pub po: I,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawVmsa64PermissionFields {
+    pub primary: FourBit,
+    pub dirty: bool,
+    pub overlay: ThreeBit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawVmsa64Stage1LeafAttrs {
-    pub attr_index: ThreeBit,
+    pub attr_index: FourBit,
     pub ns: bool,
-    pub ap: LeafAp,
+    pub permissions: RawVmsa64PermissionFields,
     pub shareability: RawShareability,
     pub access_flag: bool,
     pub alias_bit: bool,
-    pub dirty_bit_modifier: bool,
     pub contiguous: bool,
-    pub privileged_execute_never: bool,
-    pub unprivileged_execute_never: bool,
     pub guarded: bool,
     pub software: FourBit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawVmsa64Stage1TableAttrs {
+    pub access_flag: bool,
     pub privileged_execute_never_limit: bool,
     pub unprivileged_execute_never_limit: bool,
     pub ap_table: TableAp,
@@ -243,17 +236,16 @@ pub struct RawVmsa64Stage1TableAttrs {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawVmsa64Stage2LeafAttrs {
     pub mem_attr: FourBit,
-    pub access: Stage2Ap,
+    pub permissions: RawVmsa64PermissionFields,
     pub shareability: RawShareability,
     pub access_flag: bool,
-    pub dirty_bit_modifier: bool,
     pub contiguous: bool,
-    pub execute_never: Stage2ExecuteNever,
     pub software: FourBit,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RawVmsa64Stage2TableAttrs {
+    pub access_flag: bool,
     pub software: FourBit,
 }
 

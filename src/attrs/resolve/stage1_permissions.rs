@@ -1,23 +1,46 @@
 use crate::attrs::{
     AttrError, DataAccess, El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions,
-    FourBit, LeafAp, PermissionIndices, PrivilegeModel, SinglePrivilegeLeafPermissions,
-    SinglePrivilegeTablePermissionLimits, Stage1EffectivePermissions, TableAp,
-    TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissionLimits,
+    FourBit, LeafAp, PermissionIndices, PrivilegeModel, SinglePrivilegeTablePermissionLimits,
+    Stage1EffectivePermissions, TableAp, TwoPrivilegeTablePermissionLimits,
 };
 
 use super::Stage1PermissionConfig;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage1PermissionRegisterPair {
-    pub base: u64,
-    pub overlay: Option<u64>,
+pub struct Stage1PermissionRegisters {
+    pub privileged: u64,
+    pub unprivileged: Option<u64>,
+    pub gcs_implemented: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage1PermissionRegisters {
-    pub privileged: Stage1PermissionRegisterPair,
-    pub unprivileged: Option<Stage1PermissionRegisterPair>,
-    pub gcs_implemented: bool,
+pub enum Stage1BasePermissions {
+    Direct,
+    Indirect(Stage1PermissionRegisters),
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Stage1PermissionOverlays {
+    pub privileged: Option<u64>,
+    pub unprivileged: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Stage1PermissionSettings {
+    pub base: Stage1BasePermissions,
+    pub overlays: Stage1PermissionOverlays,
+}
+
+impl Stage1PermissionSettings {
+    pub const fn direct() -> Self {
+        Self {
+            base: Stage1BasePermissions::Direct,
+            overlays: Stage1PermissionOverlays {
+                privileged: None,
+                unprivileged: None,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,33 +112,12 @@ pub const STAGE1_OVERLAY_DECODE: [Stage1OverlayPermission; 16] = [
     Stage1OverlayPermission::ReservedNoAccess,
 ];
 
-pub fn encode_single_el_leaf_ap(access: DataAccess) -> Result<LeafAp, AttrError> {
-    LeafAp::from_bits(match access {
-        DataAccess::ReadWrite => 0b01,
-        DataAccess::ReadOnly => 0b11,
-        DataAccess::None => return Err(AttrError::UnencodablePermissions),
-    })
-}
-
 pub fn decode_single_el_leaf_ap(ap: LeafAp) -> Result<DataAccess, AttrError> {
     match ap.bits() {
         0b01 => Ok(DataAccess::ReadWrite),
         0b11 => Ok(DataAccess::ReadOnly),
         bits => Err(AttrError::InvalidLeafAp(bits)),
     }
-}
-
-pub fn encode_two_privilege_leaf_ap(
-    privileged: DataAccess,
-    unprivileged: DataAccess,
-) -> Result<LeafAp, AttrError> {
-    LeafAp::from_bits(match (privileged, unprivileged) {
-        (DataAccess::ReadWrite, DataAccess::None) => 0b00,
-        (DataAccess::ReadWrite, DataAccess::ReadWrite) => 0b01,
-        (DataAccess::ReadOnly, DataAccess::None) => 0b10,
-        (DataAccess::ReadOnly, DataAccess::ReadOnly) => 0b11,
-        _ => return Err(AttrError::UnencodablePermissions),
-    })
 }
 
 pub fn decode_two_privilege_leaf_ap(ap: LeafAp) -> (DataAccess, DataAccess) {
@@ -200,12 +202,9 @@ pub struct RawStage1TablePermissionLimits {
 }
 
 pub trait Stage1DirectPermissionModel: PrivilegeModel {
-    fn encode_leaf(
-        permissions: Self::LeafPermissions,
-    ) -> Result<RawStage1DirectLeafPermissions, AttrError>;
-
-    fn decode_leaf(raw: RawStage1DirectLeafPermissions)
-    -> Result<Self::LeafPermissions, AttrError>;
+    fn decode_leaf(
+        raw: RawStage1DirectLeafPermissions,
+    ) -> Result<Stage1EffectivePermissions, AttrError>;
 
     fn encode_table(
         limits: Self::TablePermissionLimits,
@@ -219,25 +218,19 @@ pub trait Stage1DirectPermissionModel: PrivilegeModel {
 macro_rules! single_privilege_model {
     ($model:ty) => {
         impl Stage1DirectPermissionModel for $model {
-            fn encode_leaf(
-                value: Self::LeafPermissions,
-            ) -> Result<RawStage1DirectLeafPermissions, AttrError> {
-                Ok(RawStage1DirectLeafPermissions {
-                    ap: encode_single_el_leaf_ap(value.data)?,
-                    privileged_execute_never: false,
-                    unprivileged_execute_never: !value.execute,
-                })
-            }
-
             fn decode_leaf(
                 raw: RawStage1DirectLeafPermissions,
-            ) -> Result<Self::LeafPermissions, AttrError> {
+            ) -> Result<Stage1EffectivePermissions, AttrError> {
                 if raw.privileged_execute_never {
                     return Err(AttrError::UnencodablePermissions);
                 }
-                Ok(SinglePrivilegeLeafPermissions {
-                    data: decode_single_el_leaf_ap(raw.ap)?,
-                    execute: !raw.unprivileged_execute_never,
+                Ok(Stage1EffectivePermissions {
+                    privileged_data: decode_single_el_leaf_ap(raw.ap)?,
+                    unprivileged_data: DataAccess::None,
+                    privileged_execute: !raw.unprivileged_execute_never,
+                    unprivileged_execute: false,
+                    privileged_gcs: false,
+                    unprivileged_gcs: false,
                 })
             }
 
@@ -272,28 +265,17 @@ single_privilege_model!(El3Permissions);
 macro_rules! two_privilege_model {
     ($model:ty) => {
         impl Stage1DirectPermissionModel for $model {
-            fn encode_leaf(
-                value: Self::LeafPermissions,
-            ) -> Result<RawStage1DirectLeafPermissions, AttrError> {
-                Ok(RawStage1DirectLeafPermissions {
-                    ap: encode_two_privilege_leaf_ap(
-                        value.privileged_data,
-                        value.unprivileged_data,
-                    )?,
-                    privileged_execute_never: !value.privileged_execute,
-                    unprivileged_execute_never: !value.unprivileged_execute,
-                })
-            }
-
             fn decode_leaf(
                 raw: RawStage1DirectLeafPermissions,
-            ) -> Result<Self::LeafPermissions, AttrError> {
+            ) -> Result<Stage1EffectivePermissions, AttrError> {
                 let (privileged_data, unprivileged_data) = decode_two_privilege_leaf_ap(raw.ap);
-                Ok(TwoPrivilegeLeafPermissions {
+                Ok(Stage1EffectivePermissions {
                     privileged_data,
                     unprivileged_data,
                     privileged_execute: !raw.privileged_execute_never,
                     unprivileged_execute: !raw.unprivileged_execute_never,
+                    privileged_gcs: false,
+                    unprivileged_gcs: false,
                 })
             }
 
@@ -323,39 +305,45 @@ macro_rules! two_privilege_model {
 two_privilege_model!(El1And0Permissions);
 two_privilege_model!(El2And0Permissions);
 
-pub struct Stage1PermissionResolver<'a, C: ?Sized> {
+pub struct Stage1PermissionResolver<'a, C: ?Sized, I = FourBit> {
     config: &'a C,
+    index: core::marker::PhantomData<I>,
 }
 
-impl<'a, C: Stage1PermissionConfig + ?Sized> Stage1PermissionResolver<'a, C> {
+impl<'a, C: Stage1PermissionConfig + ?Sized, I: super::PermissionIndex>
+    Stage1PermissionResolver<'a, C, I>
+{
     pub const fn new(config: &'a C) -> Self {
-        Self { config }
+        Self {
+            config,
+            index: core::marker::PhantomData,
+        }
     }
 
     pub fn resolve(
         &self,
         wanted: Stage1EffectivePermissions,
-    ) -> Result<PermissionIndices, AttrError> {
-        let registers = self
-            .config
-            .stage1_permission_registers()
-            .ok_or(AttrError::PermissionIndirectionUnavailable)?;
-        let po_count = if registers.privileged.overlay.is_some()
-            || registers
-                .unprivileged
-                .is_some_and(|pair| pair.overlay.is_some())
-        {
-            16
-        } else {
-            1
+    ) -> Result<PermissionIndices<I>, AttrError> {
+        let settings = self.config.stage1_permissions();
+        let registers = match settings.base {
+            Stage1BasePermissions::Indirect(registers) => registers,
+            Stage1BasePermissions::Direct => {
+                return Err(AttrError::PermissionIndirectionUnavailable);
+            }
         };
+        let po_count =
+            if settings.overlays.privileged.is_some() || settings.overlays.unprivileged.is_some() {
+                I::COUNT
+            } else {
+                1
+            };
 
         for pi in 0..16 {
             for po in 0..po_count {
-                if decode_effective(registers, pi, po) == Some(wanted) {
+                if decode_effective(registers, settings.overlays, pi, po) == Some(wanted) {
                     return Ok(PermissionIndices {
                         pi: FourBit::new(pi)?,
-                        po: FourBit::new(po)?,
+                        po: I::new(po)?,
                     });
                 }
             }
@@ -365,14 +353,22 @@ impl<'a, C: Stage1PermissionConfig + ?Sized> Stage1PermissionResolver<'a, C> {
 
     pub fn decode(
         &self,
-        indices: PermissionIndices,
+        indices: PermissionIndices<I>,
     ) -> Result<Stage1EffectivePermissions, AttrError> {
-        let registers = self
-            .config
-            .stage1_permission_registers()
-            .ok_or(AttrError::PermissionIndirectionUnavailable)?;
-        decode_effective(registers, indices.pi.bits(), indices.po.bits())
-            .ok_or(AttrError::UnencodablePermissions)
+        let settings = self.config.stage1_permissions();
+        let registers = match settings.base {
+            Stage1BasePermissions::Indirect(registers) => registers,
+            Stage1BasePermissions::Direct => {
+                return Err(AttrError::PermissionIndirectionUnavailable);
+            }
+        };
+        decode_effective(
+            registers,
+            settings.overlays,
+            indices.pi.bits(),
+            indices.po.bits(),
+        )
+        .ok_or(AttrError::UnencodablePermissions)
     }
 }
 
@@ -388,13 +384,28 @@ struct Bits {
 
 fn decode_effective(
     registers: Stage1PermissionRegisters,
+    overlays: Stage1PermissionOverlays,
     pi: u8,
     po: u8,
 ) -> Option<Stage1EffectivePermissions> {
-    let privileged = decode_pair(registers.privileged, pi, po, registers.gcs_implemented);
+    let privileged = decode_pair(
+        registers.privileged,
+        overlays.privileged,
+        pi,
+        po,
+        registers.gcs_implemented,
+    );
     let unprivileged = registers
         .unprivileged
-        .map(|pair| decode_pair(pair, pi, po, registers.gcs_implemented))
+        .map(|base| {
+            decode_pair(
+                base,
+                overlays.unprivileged,
+                pi,
+                po,
+                registers.gcs_implemented,
+            )
+        })
         .unwrap_or_else(no_bits);
 
     if (privileged.execute || privileged.gcs) && (unprivileged.write || unprivileged.gcs) {
@@ -411,9 +422,15 @@ fn decode_effective(
     })
 }
 
-fn decode_pair(pair: Stage1PermissionRegisterPair, pi: u8, po: u8, gcs_implemented: bool) -> Bits {
-    let base = decode_base(entry(pair.base, pi), gcs_implemented);
-    match pair.overlay {
+fn decode_pair(
+    base_register: u64,
+    overlay: Option<u64>,
+    pi: u8,
+    po: u8,
+    gcs_implemented: bool,
+) -> Bits {
+    let base = decode_base(entry(base_register, pi), gcs_implemented);
+    match overlay {
         Some(overlay) => apply_overlay(base, entry(overlay, po)),
         None => base,
     }
@@ -481,6 +498,52 @@ fn apply_overlay(base: Bits, raw: u8) -> Bits {
         apply_overlay: false,
         wxn: false,
     }
+}
+
+pub(crate) fn apply_stage1_overlay(
+    base: Stage1EffectivePermissions,
+    overlays: Stage1PermissionOverlays,
+    po: u8,
+) -> Option<Stage1EffectivePermissions> {
+    let privileged = apply_effective_overlay(
+        Bits {
+            read: base.privileged_data != DataAccess::None,
+            write: base.privileged_data == DataAccess::ReadWrite,
+            execute: base.privileged_execute,
+            gcs: base.privileged_gcs,
+            apply_overlay: true,
+            wxn: false,
+        },
+        overlays.privileged,
+        po,
+    );
+    let unprivileged = apply_effective_overlay(
+        Bits {
+            read: base.unprivileged_data != DataAccess::None,
+            write: base.unprivileged_data == DataAccess::ReadWrite,
+            execute: base.unprivileged_execute,
+            gcs: base.unprivileged_gcs,
+            apply_overlay: true,
+            wxn: false,
+        },
+        overlays.unprivileged,
+        po,
+    );
+    if (privileged.execute || privileged.gcs) && (unprivileged.write || unprivileged.gcs) {
+        return None;
+    }
+    Some(Stage1EffectivePermissions {
+        privileged_data: data_access(privileged)?,
+        unprivileged_data: data_access(unprivileged)?,
+        privileged_execute: privileged.execute,
+        unprivileged_execute: unprivileged.execute,
+        privileged_gcs: privileged.gcs,
+        unprivileged_gcs: unprivileged.gcs,
+    })
+}
+
+fn apply_effective_overlay(base: Bits, overlay: Option<u64>, po: u8) -> Bits {
+    overlay.map_or(base, |register| apply_overlay(base, entry(register, po)))
 }
 
 const fn no_bits() -> Bits {

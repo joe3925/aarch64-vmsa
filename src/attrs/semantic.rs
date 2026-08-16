@@ -135,6 +135,12 @@ pub enum DirtyBitManagement {
     HardwareManaged,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum DirtyControl {
+    Direct(DirtyBitManagement),
+    Indirect(DirtyState),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticStage1LeafAttrs<P, Pas, C> {
     pub memory: MemoryAttributes,
@@ -163,7 +169,7 @@ pub struct SemanticVmsa64Stage1LeafControls {
     pub shareability: Shareability,
     pub access_flag: bool,
     pub global: bool,
-    pub dirty_management: DirtyBitManagement,
+    pub dirty: DirtyControl,
     pub contiguous: bool,
     pub guarded: bool,
     pub software: SoftwareMetadata,
@@ -171,6 +177,7 @@ pub struct SemanticVmsa64Stage1LeafControls {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SemanticVmsa64Stage1TableControls {
+    pub access_flag: bool,
     pub software: SoftwareMetadata,
 }
 
@@ -178,13 +185,14 @@ pub struct SemanticVmsa64Stage1TableControls {
 pub struct SemanticVmsa64Stage2LeafControls {
     pub shareability: Shareability,
     pub access_flag: bool,
-    pub dirty_management: DirtyBitManagement,
+    pub dirty: DirtyControl,
     pub contiguous: bool,
     pub software: SoftwareMetadata,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SemanticVmsa64Stage2TableAttrs {
+    pub access_flag: bool,
     pub software: SoftwareMetadata,
 }
 

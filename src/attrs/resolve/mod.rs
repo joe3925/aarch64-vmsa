@@ -10,11 +10,46 @@ pub use codec::AttributeCodec;
 pub(crate) use memory::*;
 pub(crate) use pas::*;
 pub(crate) use stage1_permissions::*;
-pub use stage1_permissions::{Stage1PermissionRegisterPair, Stage1PermissionRegisters};
-pub use stage2_permissions::Stage2PermissionRegisters;
+pub use stage1_permissions::{
+    Stage1BasePermissions, Stage1PermissionOverlays, Stage1PermissionRegisters,
+    Stage1PermissionSettings,
+};
 pub(crate) use stage2_permissions::*;
+pub use stage2_permissions::{
+    Stage2BasePermissions, Stage2PermissionRegisters, Stage2PermissionSettings,
+};
 
 use super::{D128Stage1AliasKind, Shareability};
+
+pub(crate) trait PermissionIndex: Copy {
+    const COUNT: u8;
+    fn new(value: u8) -> Result<Self, super::AttrError>;
+    fn bits(self) -> u8;
+}
+
+impl PermissionIndex for super::FourBit {
+    const COUNT: u8 = 16;
+
+    fn new(value: u8) -> Result<Self, super::AttrError> {
+        Self::new(value)
+    }
+
+    fn bits(self) -> u8 {
+        self.bits()
+    }
+}
+
+impl PermissionIndex for super::ThreeBit {
+    const COUNT: u8 = 8;
+
+    fn new(value: u8) -> Result<Self, super::AttrError> {
+        Self::new(value)
+    }
+
+    fn bits(self) -> u8 {
+        self.bits()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Stage2MemoryMode {
@@ -34,11 +69,16 @@ pub trait Stage2MemoryConfig {
 }
 
 pub trait Stage1PermissionConfig {
-    fn stage1_permission_registers(&self) -> Option<Stage1PermissionRegisters>;
+    // todo add feature validation for aie pie poe and haft
+    fn stage1_permissions(&self) -> Stage1PermissionSettings {
+        Stage1PermissionSettings::direct()
+    }
 }
 
 pub trait Stage2PermissionConfig {
-    fn stage2_permission_registers(&self) -> Option<Stage2PermissionRegisters>;
+    fn stage2_permissions(&self) -> Stage2PermissionSettings {
+        Stage2PermissionSettings::direct()
+    }
 }
 
 pub trait D128AliasConfig {
@@ -74,14 +114,14 @@ impl<T: Stage1MemoryConfig + ?Sized> Stage1MemoryConfig for &T {
 }
 impl_ref_config!(Stage2MemoryConfig, stage2_memory_mode, Stage2MemoryMode);
 impl<T: Stage1PermissionConfig + ?Sized> Stage1PermissionConfig for &T {
-    fn stage1_permission_registers(&self) -> Option<Stage1PermissionRegisters> {
-        (**self).stage1_permission_registers()
+    fn stage1_permissions(&self) -> Stage1PermissionSettings {
+        (**self).stage1_permissions()
     }
 }
 impl_ref_config!(
     Stage2PermissionConfig,
-    stage2_permission_registers,
-    Option<Stage2PermissionRegisters>
+    stage2_permissions,
+    Stage2PermissionSettings
 );
 impl_ref_config!(D128AliasConfig, d128_stage1_alias_kind, D128Stage1AliasKind);
 impl_ref_config!(ShareabilityConfig, effective_shareability, Shareability);
@@ -90,8 +130,8 @@ impl_ref_config!(ShareabilityConfig, effective_shareability, Shareability);
 pub struct LiveVmsaConfig<Pas = ()> {
     pub mair: u64,
     pub mair2: Option<u64>,
-    pub stage1_permissions: Option<Stage1PermissionRegisters>,
-    pub stage2_permissions: Option<Stage2PermissionRegisters>,
+    pub stage1_permissions: Stage1PermissionSettings,
+    pub stage2_permissions: Stage2PermissionSettings,
     pub stage2_memory_mode: Stage2MemoryMode,
     pub d128_stage1_alias: D128Stage1AliasKind,
     pub shareability: Shareability,
@@ -112,12 +152,12 @@ impl<P> Stage2MemoryConfig for LiveVmsaConfig<P> {
     }
 }
 impl<P> Stage1PermissionConfig for LiveVmsaConfig<P> {
-    fn stage1_permission_registers(&self) -> Option<Stage1PermissionRegisters> {
+    fn stage1_permissions(&self) -> Stage1PermissionSettings {
         self.stage1_permissions
     }
 }
 impl<P> Stage2PermissionConfig for LiveVmsaConfig<P> {
-    fn stage2_permission_registers(&self) -> Option<Stage2PermissionRegisters> {
+    fn stage2_permissions(&self) -> Stage2PermissionSettings {
         self.stage2_permissions
     }
 }

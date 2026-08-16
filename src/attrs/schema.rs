@@ -9,7 +9,7 @@ use super::{
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs,
     SemanticVmsa128Stage1LeafControls, SemanticVmsa128Stage1TableAttrs,
     SemanticVmsa128Stage2LeafControls, SemanticVmsa128Stage2TableAttrs, Stage1EffectivePermissions,
-    Stage1PasModel, Stage2LeafPermissions, Stage2PasContext, Stage2Permission,
+    Stage1PasModel, Stage2PasContext, Stage2Permission,
 };
 
 /// Selects the semantic schema exposed by a descriptor format.
@@ -74,7 +74,7 @@ where
     R::PasModel: Stage1PasModel,
 {
     type Leaf = SemanticStage1LeafAttrs<
-        <R::PrivilegeModel as PrivilegeModel>::LeafPermissions,
+        Stage1EffectivePermissions,
         <R::PasModel as Stage1PasModel>::LeafAttr,
         SemanticVmsa64Stage1LeafControls,
     >;
@@ -92,7 +92,7 @@ where
     R::PasModel: Stage2PasContext,
 {
     type Leaf = SemanticStage2LeafAttrs<
-        Stage2LeafPermissions,
+        Stage2Permission,
         <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >;

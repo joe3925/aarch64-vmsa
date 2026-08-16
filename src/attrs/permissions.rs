@@ -11,23 +11,9 @@ pub enum DataAccess {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SinglePrivilegeLeafPermissions {
-    pub data: DataAccess,
-    pub execute: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SinglePrivilegeTablePermissionLimits {
     pub data_limit: DataAccess,
     pub execute_limit: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TwoPrivilegeLeafPermissions {
-    pub privileged_data: DataAccess,
-    pub unprivileged_data: DataAccess,
-    pub privileged_execute: bool,
-    pub unprivileged_execute: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,20 +24,12 @@ pub struct TwoPrivilegeTablePermissionLimits {
     pub unprivileged_execute_limit: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2LeafPermissions {
-    pub data: DataAccess,
-    pub privileged_execute: bool,
-    pub unprivileged_execute: bool,
-}
-
 mod private {
     pub trait PrivilegeSealed {}
     pub trait Stage2Sealed {}
 }
 
 pub trait PrivilegeModel: private::PrivilegeSealed + Copy + 'static {
-    type LeafPermissions: Copy + Debug + Eq + PartialEq;
     type TablePermissionLimits: Copy + Debug + Eq + PartialEq;
     const SUPPORTS_EL0: bool;
     const HAS_TTBR1: bool;
@@ -63,7 +41,6 @@ pub trait PrivilegeModel: private::PrivilegeSealed + Copy + 'static {
 pub struct El1And0Permissions;
 impl private::PrivilegeSealed for El1And0Permissions {}
 impl PrivilegeModel for El1And0Permissions {
-    type LeafPermissions = TwoPrivilegeLeafPermissions;
     type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = true;
     const HAS_TTBR1: bool = true;
@@ -75,7 +52,6 @@ impl PrivilegeModel for El1And0Permissions {
 pub struct El2Permissions;
 impl private::PrivilegeSealed for El2Permissions {}
 impl PrivilegeModel for El2Permissions {
-    type LeafPermissions = SinglePrivilegeLeafPermissions;
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = false;
     const HAS_TTBR1: bool = false;
@@ -88,7 +64,6 @@ impl PrivilegeModel for El2Permissions {
 pub struct El2And0Permissions;
 impl private::PrivilegeSealed for El2And0Permissions {}
 impl PrivilegeModel for El2And0Permissions {
-    type LeafPermissions = TwoPrivilegeLeafPermissions;
     type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = true;
     const HAS_TTBR1: bool = true;
@@ -102,7 +77,6 @@ impl PrivilegeModel for El2And0Permissions {
 pub struct El3Permissions;
 impl private::PrivilegeSealed for El3Permissions {}
 impl PrivilegeModel for El3Permissions {
-    type LeafPermissions = SinglePrivilegeLeafPermissions;
     type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
     const SUPPORTS_EL0: bool = false;
     const HAS_TTBR1: bool = false;
@@ -164,4 +138,24 @@ pub enum Stage2Permission {
         privileged_execute: bool,
         unprivileged_execute: bool,
     },
+}
+
+impl Stage2Permission {
+    pub const fn direct(
+        data: DataAccess,
+        privileged_execute: bool,
+        unprivileged_execute: bool,
+    ) -> Self {
+        match data {
+            DataAccess::None => Self::NoAccess,
+            DataAccess::ReadOnly => Self::ReadOnly {
+                privileged_execute,
+                unprivileged_execute,
+            },
+            DataAccess::ReadWrite => Self::ReadWrite {
+                privileged_execute,
+                unprivileged_execute,
+            },
+        }
+    }
 }

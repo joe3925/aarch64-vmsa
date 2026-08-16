@@ -4,10 +4,11 @@ use std::ptr::NonNull;
 
 use aarch64_vmsa::address::PhysAddr;
 use aarch64_vmsa::attrs::{
-    AllocationHints, CachePolicy, Cacheability, DataAccess, DirtyBitManagement, MemoryAttributes,
-    MemoryTransience, SemanticLeafAttrs, SemanticTableAttrs, SemanticVmsa64Stage1LeafControls,
-    SemanticVmsa64Stage1TableControls, Shareability, SoftwareMetadata, Stage1MemoryConfig,
-    TwoPrivilegeLeafPermissions, TwoPrivilegeTablePermissionLimits,
+    AllocationHints, CachePolicy, Cacheability, DataAccess, DirtyBitManagement, DirtyControl,
+    MemoryAttributes, MemoryTransience, SemanticLeafAttrs, SemanticTableAttrs,
+    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
+    SoftwareMetadata, Stage1EffectivePermissions, Stage1MemoryConfig, Stage1PermissionConfig,
+    TwoPrivilegeTablePermissionLimits,
 };
 use aarch64_vmsa::config::format::Vmsa64;
 use aarch64_vmsa::config::granule::Granule4KiB;
@@ -30,6 +31,7 @@ impl Stage1MemoryConfig for ExampleConfig {
         0xff
     }
 }
+impl Stage1PermissionConfig for ExampleConfig {}
 
 struct TableProvider<G: TranslationGranule>(PhantomData<G>);
 struct TableAccessor<F: DescriptorFormat, G: TranslationGranule>(PhantomData<(F, G)>);
@@ -123,18 +125,20 @@ fn main() {
             inner: write_back,
             outer: write_back,
         },
-        permissions: TwoPrivilegeLeafPermissions {
+        permissions: Stage1EffectivePermissions {
             privileged_data: DataAccess::ReadWrite,
             unprivileged_data: DataAccess::None,
             privileged_execute: false,
             unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
         },
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
             shareability: Shareability::InnerShareable,
             access_flag: true,
             global: true,
-            dirty_management: DirtyBitManagement::SoftwareManaged,
+            dirty: DirtyControl::Direct(DirtyBitManagement::SoftwareManaged),
             contiguous: false,
             guarded: false,
             software: SoftwareMetadata::new(0),

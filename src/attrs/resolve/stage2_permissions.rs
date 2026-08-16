@@ -1,6 +1,6 @@
 use crate::attrs::{
     AttrError, DataAccess, FourBit, MostlyReadOnly, PermissionIndices, Stage2Ap,
-    Stage2ExecuteNever, Stage2LeafPermissions, Stage2Permission,
+    Stage2ExecuteNever, Stage2Permission,
 };
 
 use super::Stage2PermissionConfig;
@@ -8,7 +8,27 @@ use super::Stage2PermissionConfig;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stage2PermissionRegisters {
     pub s2pir_el2: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stage2BasePermissions {
+    Direct,
+    Indirect(Stage2PermissionRegisters),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Stage2PermissionSettings {
+    pub base: Stage2BasePermissions,
     pub s2por_el1: Option<u64>,
+}
+
+impl Stage2PermissionSettings {
+    pub const fn direct() -> Self {
+        Self {
+            base: Stage2BasePermissions::Direct,
+            s2por_el1: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,37 +127,11 @@ pub const STAGE2_OVERLAY_DECODE: [Stage2PermissionEntry; 16] = [
     }),
 ];
 
-pub fn encode_stage2_direct_permissions(
-    value: Stage2LeafPermissions,
-    xnx: bool,
-) -> Result<(Stage2Ap, Stage2ExecuteNever), AttrError> {
-    let access = Stage2Ap::from_bits(match value.data {
-        DataAccess::None => 0b00,
-        DataAccess::ReadOnly => 0b01,
-        DataAccess::ReadWrite => 0b11,
-    })?;
-    let execute_never = if xnx {
-        match (value.privileged_execute, value.unprivileged_execute) {
-            (true, true) => 0b00,
-            (false, true) => 0b01,
-            (false, false) => 0b10,
-            (true, false) => 0b11,
-        }
-    } else {
-        match (value.privileged_execute, value.unprivileged_execute) {
-            (true, true) => 0b00,
-            (false, false) => 0b10,
-            _ => return Err(AttrError::InvalidStage2ExecuteNever),
-        }
-    };
-    Ok((access, Stage2ExecuteNever::from_bits(execute_never)?))
-}
-
 pub fn decode_stage2_direct_permissions(
     access: Stage2Ap,
     execute_never: Stage2ExecuteNever,
     xnx: bool,
-) -> Result<Stage2LeafPermissions, AttrError> {
+) -> Result<Stage2Permission, AttrError> {
     let data = match access.bits() {
         0b00 => DataAccess::None,
         0b01 => DataAccess::ReadOnly,
@@ -159,35 +153,54 @@ pub fn decode_stage2_direct_permissions(
             _ => return Err(AttrError::InvalidStage2ExecuteNever),
         }
     };
-    Ok(Stage2LeafPermissions {
-        data,
-        privileged_execute,
-        unprivileged_execute,
+    Ok(match data {
+        DataAccess::None => Stage2Permission::NoAccess,
+        DataAccess::ReadOnly => Stage2Permission::ReadOnly {
+            privileged_execute,
+            unprivileged_execute,
+        },
+        DataAccess::ReadWrite => Stage2Permission::ReadWrite {
+            privileged_execute,
+            unprivileged_execute,
+        },
     })
 }
 
-pub struct Stage2PermissionResolver<'a, C: ?Sized> {
+pub struct Stage2PermissionResolver<'a, C: ?Sized, I = FourBit> {
     config: &'a C,
+    index: core::marker::PhantomData<I>,
 }
 
-impl<'a, C: Stage2PermissionConfig + ?Sized> Stage2PermissionResolver<'a, C> {
+impl<'a, C: Stage2PermissionConfig + ?Sized, I: super::PermissionIndex>
+    Stage2PermissionResolver<'a, C, I>
+{
     pub const fn new(config: &'a C) -> Self {
-        Self { config }
+        Self {
+            config,
+            index: core::marker::PhantomData,
+        }
     }
 
-    pub fn resolve(&self, wanted: Stage2Permission) -> Result<PermissionIndices, AttrError> {
-        let registers = self
-            .config
-            .stage2_permission_registers()
-            .ok_or(AttrError::PermissionIndirectionUnavailable)?;
-        let po_count = if registers.s2por_el1.is_some() { 16 } else { 1 };
+    pub fn resolve(&self, wanted: Stage2Permission) -> Result<PermissionIndices<I>, AttrError> {
+        let settings = self.config.stage2_permissions();
+        let registers = match settings.base {
+            Stage2BasePermissions::Indirect(registers) => registers,
+            Stage2BasePermissions::Direct => {
+                return Err(AttrError::PermissionIndirectionUnavailable);
+            }
+        };
+        let po_count = if settings.s2por_el1.is_some() {
+            I::COUNT
+        } else {
+            1
+        };
 
         for pi in 0..16 {
             for po in 0..po_count {
-                if decode_effective(registers, pi, po) == wanted {
+                if decode_effective(registers, settings.s2por_el1, pi, po) == wanted {
                     return Ok(PermissionIndices {
                         pi: FourBit::new(pi)?,
-                        po: FourBit::new(po)?,
+                        po: I::new(po)?,
                     });
                 }
             }
@@ -195,28 +208,50 @@ impl<'a, C: Stage2PermissionConfig + ?Sized> Stage2PermissionResolver<'a, C> {
         Err(AttrError::PermissionCombinationNotConfigured)
     }
 
-    pub fn decode(&self, indices: PermissionIndices) -> Result<Stage2Permission, AttrError> {
-        let registers = self
-            .config
-            .stage2_permission_registers()
-            .ok_or(AttrError::PermissionIndirectionUnavailable)?;
+    pub fn decode(&self, indices: PermissionIndices<I>) -> Result<Stage2Permission, AttrError> {
+        let settings = self.config.stage2_permissions();
+        let registers = match settings.base {
+            Stage2BasePermissions::Indirect(registers) => registers,
+            Stage2BasePermissions::Direct => {
+                return Err(AttrError::PermissionIndirectionUnavailable);
+            }
+        };
         Ok(decode_effective(
             registers,
+            settings.s2por_el1,
             indices.pi.bits(),
             indices.po.bits(),
         ))
     }
 }
 
-fn decode_effective(registers: Stage2PermissionRegisters, pi: u8, po: u8) -> Stage2Permission {
+fn decode_effective(
+    registers: Stage2PermissionRegisters,
+    overlay: Option<u64>,
+    pi: u8,
+    po: u8,
+) -> Stage2Permission {
     let base = decoded(STAGE2_BASE_DECODE[entry(registers.s2pir_el2, pi) as usize]);
-    match registers.s2por_el1 {
+    match overlay {
         Some(overlay) => combine_stage2_permissions(
             base,
             decoded(STAGE2_OVERLAY_DECODE[entry(overlay, po) as usize]),
         ),
         None => base,
     }
+}
+
+pub(crate) fn apply_stage2_overlay(
+    base: Stage2Permission,
+    overlay: Option<u64>,
+    po: u8,
+) -> Stage2Permission {
+    overlay.map_or(base, |register| {
+        combine_stage2_permissions(
+            base,
+            decoded(STAGE2_OVERLAY_DECODE[entry(register, po) as usize]),
+        )
+    })
 }
 
 const fn decoded(entry: Stage2PermissionEntry) -> Stage2Permission {
