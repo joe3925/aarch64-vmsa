@@ -3,7 +3,7 @@ An AArch64-VMSA crate with the goal of full coverage of the `AArch64-VMSA` spec.
 
 ## Why this exists
  
-crates such as `aarch64-paging` only support sections of the `AArch64-VMSA` spec currently it doesn't support other granuales then 4k, D128 or some translations regimes. 
+crates such as `aarch64-paging` only support sections of the `AArch64-VMSA` spec currently it doesn't support other granuales then 4k, nor does it support D128 or some translations regimes. 
 
 The goal of this crate is to cover every portion of the spec and to do this with a generic and strongly typed approch. This is done so that mappers and walkers can be fully specialized at compile time on top of the idea is that adding new features becomes trivial in the face of the growing `AArch64` platform.
 
