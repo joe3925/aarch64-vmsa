@@ -1,9 +1,9 @@
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
 use crate::attrs::{AttrError, AttributeCodec, SemanticLeafAttrs, SemanticTableAttrs};
 use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider};
-use crate::translation::walk::WalkInputAddr;
+use crate::translation::walk::{WalkInputAddr, WalkOutputAddr};
 use crate::translation::{WalkLeaf, WalkTable};
 
 use super::{MapLeafOutcome, Mapper, MapperError, MapperMode, Mapping};
@@ -31,7 +31,7 @@ where
         &mut self,
         config: &Cfg,
         input: WalkInputAddr,
-        output: PhysAddr,
+        output: WalkOutputAddr,
         level: Level,
         leaf_attrs: SemanticLeafAttrs<F, R>,
         table_attrs: SemanticTableAttrs<F, R>,

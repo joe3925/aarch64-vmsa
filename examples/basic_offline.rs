@@ -2,7 +2,6 @@ use std::alloc::{Layout, LayoutError, alloc_zeroed, dealloc, handle_alloc_error}
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use aarch64_vmsa::address::PhysAddr;
 use aarch64_vmsa::attrs::{
     AllocationHints, CachePolicy, Cacheability, DataAccess, DirtyBitManagement, DirtyControl,
     MemoryAttributes, MemoryTransience, SemanticLeafAttrs, SemanticTableAttrs,
@@ -22,7 +21,7 @@ use aarch64_vmsa::table::{
     TranslationTable, TranslationTableMut,
 };
 
-use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, Walker};
+use aarch64_vmsa::translation::{WalkEntry, WalkInputAddr, WalkOutputAddr, Walker};
 
 struct ExampleConfig;
 
@@ -176,7 +175,7 @@ fn main() {
             .map_semantic_leaf(
                 &ExampleConfig,
                 WalkInputAddr::new(input),
-                PhysAddr(output),
+                WalkOutputAddr::new(output),
                 Level::L3,
                 leaf_attrs,
                 table_attrs,
@@ -191,7 +190,7 @@ fn main() {
         .map_semantic_leaf(
             &ExampleConfig,
             WalkInputAddr::new(0x400_000),
-            PhysAddr(0x800_000),
+            WalkOutputAddr::new(0x800_000),
             Level::L2,
             leaf_attrs,
             table_attrs,

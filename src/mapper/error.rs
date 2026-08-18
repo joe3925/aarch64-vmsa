@@ -1,7 +1,7 @@
-use crate::address::{Level, PhysAddr};
+use crate::address::Level;
 use crate::descriptor::DescriptorError;
 use crate::table::{AccessError, TableAddressError, TableError};
-use crate::translation::walk::{WalkCursorError, WalkInputAddr};
+use crate::translation::walk::{WalkCursorError, WalkInputAddr, WalkOutputAddr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MapperError<AccessErrorKind, FrameErrorKind> {
@@ -40,7 +40,7 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
         entry_index: usize,
     },
     OutputAddressOverflow {
-        base: PhysAddr,
+        base: WalkOutputAddr,
         offset: u64,
     },
     InvalidConfiguredOutputAddressBits {
@@ -48,7 +48,7 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
         format_max_bits: u8,
     },
     OutputAddressOutOfRange {
-        addr: PhysAddr,
+        addr: WalkOutputAddr,
         output_address_bits: u8,
     },
     TableAddressOutOfRange {
@@ -61,7 +61,7 @@ pub enum MapperError<AccessErrorKind, FrameErrorKind> {
         align: u64,
     },
     UnalignedOutput {
-        addr: PhysAddr,
+        addr: WalkOutputAddr,
         align: u64,
     },
     InputNotLeafBase {

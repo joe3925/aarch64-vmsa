@@ -1,6 +1,6 @@
-use crate::address::{Level, PhysAddr};
+use crate::address::Level;
 use crate::descriptor::DescriptorFormat;
-use crate::translation::walk::WalkLeafKind;
+use crate::translation::walk::{WalkLeafKind, WalkOutputAddr};
 
 use super::MapperError;
 
@@ -31,10 +31,10 @@ pub(super) fn require_aligned_input<AccessErrorKind, FrameErrorKind>(
 }
 
 pub(super) fn require_aligned_output<AccessErrorKind, FrameErrorKind>(
-    addr: PhysAddr,
+    addr: WalkOutputAddr,
     align: u64,
 ) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>> {
-    if addr.0 & (align - 1) == 0 {
+    if addr.raw() & (align - 1) == 0 {
         Ok(())
     } else {
         Err(MapperError::UnalignedOutput { addr, align })
@@ -42,7 +42,7 @@ pub(super) fn require_aligned_output<AccessErrorKind, FrameErrorKind>(
 }
 
 pub(super) fn require_output_range<AccessErrorKind, FrameErrorKind>(
-    base: PhysAddr,
+    base: WalkOutputAddr,
     len: u64,
     output_address_bits: u8,
 ) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>> {
@@ -52,13 +52,13 @@ pub(super) fn require_output_range<AccessErrorKind, FrameErrorKind>(
 
     let offset = len - 1;
 
-    base.0
+    base.raw()
         .checked_add(offset)
         .ok_or(MapperError::OutputAddressOverflow { base, offset })?;
 
     require_output_address::<AccessErrorKind, FrameErrorKind>(base, output_address_bits)?;
     require_output_address::<AccessErrorKind, FrameErrorKind>(
-        PhysAddr(base.0 + offset),
+        WalkOutputAddr::new(base.raw() + offset),
         output_address_bits,
     )?;
 
@@ -66,10 +66,10 @@ pub(super) fn require_output_range<AccessErrorKind, FrameErrorKind>(
 }
 
 pub(super) fn require_output_address<AccessErrorKind, FrameErrorKind>(
-    addr: PhysAddr,
+    addr: WalkOutputAddr,
     output_address_bits: u8,
 ) -> Result<(), MapperError<AccessErrorKind, FrameErrorKind>> {
-    if output_address_bits >= 64 || addr.0 >> output_address_bits == 0 {
+    if output_address_bits >= 64 || addr.raw() >> output_address_bits == 0 {
         Ok(())
     } else {
         Err(MapperError::OutputAddressOutOfRange {

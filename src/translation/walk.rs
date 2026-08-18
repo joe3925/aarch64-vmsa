@@ -50,12 +50,68 @@ impl TranslationStage for Stage2 {}
 pub struct WalkInputAddr(u64);
 
 impl WalkInputAddr {
+    /// Creates an address from the literal unsigned input to a translation-table walk.
+    ///
+    /// This constructor does not accept a sign-extended canonical address whose upper bits are
+    /// outside the configured input address width. Use [`Self::from_canonical`] for that form.
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// Validates a canonical address and converts it to the literal unsigned walk input.
+    pub const fn from_canonical(
+        raw: u64,
+        addr_bits: u8,
+    ) -> Result<Self, CanonicalWalkInputAddrError> {
+        if addr_bits == 0 || addr_bits > u64::BITS as u8 {
+            return Err(CanonicalWalkInputAddrError::InvalidAddressBits { addr_bits });
+        }
+        if addr_bits == u64::BITS as u8 {
+            return Ok(Self(raw));
+        }
+
+        let mask = (1u64 << addr_bits) - 1;
+        let sign_bit = 1u64 << (addr_bits - 1);
+        let upper = raw & !mask;
+        let expected_upper = if raw & sign_bit == 0 { 0 } else { !mask };
+        if upper != expected_upper {
+            return Err(CanonicalWalkInputAddrError::NotCanonical {
+                addr: raw,
+                addr_bits,
+            });
+        }
+
+        Ok(Self(raw & mask))
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalWalkInputAddrError {
+    InvalidAddressBits { addr_bits: u8 },
+    NotCanonical { addr: u64, addr_bits: u8 },
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct WalkOutputAddr(u64);
+
+impl WalkOutputAddr {
     pub const fn new(raw: u64) -> Self {
         Self(raw)
     }
 
     pub const fn raw(self) -> u64 {
         self.0
+    }
+}
+
+impl From<PhysAddr> for WalkOutputAddr {
+    fn from(addr: PhysAddr) -> Self {
+        Self(addr.0)
     }
 }
 
@@ -189,7 +245,7 @@ where
 {
     cursor: WalkCursor<F, G>,
     entry: WalkLeaf<F, R, G>,
-    output: PhysAddr,
+    output: WalkOutputAddr,
 }
 
 impl<F, R, G> ResolvedWalkLeaf<F, R, G>
@@ -232,11 +288,11 @@ where
         self.entry.info().entry_index()
     }
 
-    pub const fn output_base(&self) -> PhysAddr {
+    pub const fn output_base(&self) -> WalkOutputAddr {
         self.entry.output_base()
     }
 
-    pub const fn output(&self) -> PhysAddr {
+    pub const fn output(&self) -> WalkOutputAddr {
         self.output
     }
 
@@ -285,7 +341,7 @@ pub enum WalkError<A> {
     EntryIndexOutOfRange { index: usize, entries: usize },
     TableDescriptorAtFinalLevel { level: Level },
     PathEntryNotTable { level: Level, entry_index: usize },
-    OutputAddressOverflow { base: PhysAddr, offset: u64 },
+    OutputAddressOverflow { base: WalkOutputAddr, offset: u64 },
 }
 
 impl<A> From<AccessError> for WalkError<A> {
@@ -472,7 +528,7 @@ where
     G: TranslationGranule,
 {
     info: WalkEntryInfo<F, G>,
-    output_base: PhysAddr,
+    output_base: WalkOutputAddr,
     kind: WalkLeafKind,
     fields: RegimeLeafFields<F, R, G>,
 }
@@ -499,7 +555,7 @@ where
         self.info.entry_index()
     }
 
-    pub const fn output_base(&self) -> PhysAddr {
+    pub const fn output_base(&self) -> WalkOutputAddr {
         self.output_base
     }
 
@@ -733,7 +789,7 @@ where
         self.step_to(entry_index)
     }
 
-    pub fn output(&self, leaf: &WalkLeaf<F, R, G>) -> WalkResult<PhysAddr, A::Error> {
+    pub fn output(&self, leaf: &WalkLeaf<F, R, G>) -> WalkResult<WalkOutputAddr, A::Error> {
         resolve_output(self.mode.input, leaf)
     }
 
@@ -770,7 +826,7 @@ where
 fn resolve_output<F, R, G, A>(
     input: WalkInputAddr,
     leaf: &WalkLeaf<F, R, G>,
-) -> WalkResult<PhysAddr, A>
+) -> WalkResult<WalkOutputAddr, A>
 where
     F: DescriptorFormat + HasLayout<R::Stage, G>,
     R: TranslationRegime,
@@ -780,7 +836,7 @@ where
     let level = leaf.level();
     let offset = TableGeometry::<F, G>::offset_at_level_raw(input.raw(), level)
         .ok_or(WalkCursorError::InvalidLevel { level })?;
-    Ok(PhysAddr(base.0.checked_add(offset).ok_or(
+    Ok(WalkOutputAddr::new(base.raw().checked_add(offset).ok_or(
         WalkError::OutputAddressOverflow { base, offset },
     )?))
 }
@@ -868,7 +924,7 @@ where
                     );
                 Ok(WalkEntry::Leaf(WalkLeaf {
                     info,
-                    output_base,
+                    output_base: output_base.into(),
                     kind,
                     fields,
                 }))

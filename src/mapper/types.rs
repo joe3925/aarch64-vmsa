@@ -1,7 +1,7 @@
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
 use crate::descriptor::{DescriptorFormat, HasLayout};
 use crate::regime::{RegimeLeafFields, TranslationRegime};
-use crate::translation::walk::{WalkInputAddr, WalkLeafKind};
+use crate::translation::walk::{WalkInputAddr, WalkLeafKind, WalkOutputAddr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MapLeafOutcome {
@@ -86,8 +86,8 @@ where
     G: TranslationGranule,
 {
     pub(super) input: WalkInputAddr,
-    pub(super) output: PhysAddr,
-    pub(super) output_base: PhysAddr,
+    pub(super) output: WalkOutputAddr,
+    pub(super) output_base: WalkOutputAddr,
     pub(super) covered_input_base: u64,
     pub(super) covered_size: u64,
     pub(super) level: Level,
@@ -107,11 +107,11 @@ where
         self.input
     }
 
-    pub const fn output(&self) -> PhysAddr {
+    pub const fn output(&self) -> WalkOutputAddr {
         self.output
     }
 
-    pub const fn output_base(&self) -> PhysAddr {
+    pub const fn output_base(&self) -> WalkOutputAddr {
         self.output_base
     }
 

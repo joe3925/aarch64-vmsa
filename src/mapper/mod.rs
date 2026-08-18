@@ -25,7 +25,9 @@ use crate::table::{
     TableGeometry, TableReclaim, TableTransition,
 };
 use crate::translation::WalkEntry;
-use crate::translation::walk::{ResolvedWalkLeaf, WalkCursor, WalkInputAddr, Walker};
+use crate::translation::walk::{
+    ResolvedWalkLeaf, WalkCursor, WalkInputAddr, WalkOutputAddr, Walker,
+};
 
 use self::error::map_walk_error;
 use self::validate::{
@@ -163,7 +165,7 @@ where
     pub fn map_leaf(
         &mut self,
         input: WalkInputAddr,
-        output: PhysAddr,
+        output: WalkOutputAddr,
         level: Level,
         leaf_fields: RegimeLeafFields<F, R, G>,
         table_fields: RegimeTableFields<F, R, G>,
@@ -185,7 +187,7 @@ where
     pub fn map_leaf_with_plan<T>(
         &mut self,
         input: WalkInputAddr,
-        output: PhysAddr,
+        output: WalkOutputAddr,
         level: Level,
         leaf_fields: RegimeLeafFields<F, R, G>,
         mut planner: T,
@@ -209,7 +211,7 @@ where
         )?;
 
         let leaf_raw = <RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::leaf_descriptor(
-            output,
+            PhysAddr(output.raw()),
             level,
             leaf_fields,
         )?;
