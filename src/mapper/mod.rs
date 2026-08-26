@@ -156,6 +156,12 @@ where
 
     /// This function adds a mapping to an invalid entry.
     ///
+    /// This function is safe even though it can install a writable mapping to any
+    /// output address: the unsafety is discharged when the caller builds the
+    /// [`TableAccessMut`] implementation, which is an unsafe trait. Contrast
+    /// [`Self::unmap`], which is unsafe because removing a live translation can
+    /// invalidate references the caller already holds.
+    ///
     /// This function does not make access to the mapped address safe.
     /// If this function returns an error after it adds intermediate table descriptors, the
     /// empty tables stay allocated.

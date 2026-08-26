@@ -341,6 +341,9 @@ const fn merge_derived(primary: FeatureStatus, derived: FeatureStatus) -> Featur
 
 #[cfg(target_arch = "aarch64")]
 impl IdRegisterSnapshot {
+    /// Reads the ID registers of the current PE.
+    ///
+    /// Must be called at EL1 or above. `MRS` of these registers traps at EL0.
     pub fn current() -> Self {
         Self {
             id_aa64pfr0_el1: read_id_aa64pfr0_el1(),

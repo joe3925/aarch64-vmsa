@@ -15,7 +15,8 @@ use super::vmsa64_family::{
     finish_stage1_leaf, finish_stage2_leaf, finish_table,
 };
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, require_step_by_one_transition,
+    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, align_output,
+    require_step_by_one_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,8 +117,16 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Sta
         check_reserved(raw, table_res0(G::KIND, true), b::stage1_table::RES1_MASK)?;
         Ok(raw as u64)
     }
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        PhysAddr(decode_address::<G>(raw))
+    fn output_address(raw: u64, level: Level) -> PhysAddr {
+        PhysAddr(align_output::<Vmsa64Lpa2, G>(decode_address::<G>(raw), level))
+    }
+
+    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
+        // Granule-offset bits are RES0 in a table descriptor and are not guaranteed
+        // clear on 16KiB granules under the DS encoding.
+        let address = decode_address::<G>(raw) & !(G::SIZE - 1);
+        // SAFETY: the mask above clears every granule-offset bit.
+        unsafe { TableAddr::new_unchecked(address) }
     }
 }
 
@@ -188,8 +197,16 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Lpa2Layout<Sta
         check_reserved(raw, table_res0(G::KIND, false), b::stage2_table::RES1_MASK)?;
         Ok(raw as u64)
     }
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        PhysAddr(decode_address::<G>(raw))
+    fn output_address(raw: u64, level: Level) -> PhysAddr {
+        PhysAddr(align_output::<Vmsa64Lpa2, G>(decode_address::<G>(raw), level))
+    }
+
+    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
+        // Granule-offset bits are RES0 in a table descriptor and are not guaranteed
+        // clear on 16KiB granules under the DS encoding.
+        let address = decode_address::<G>(raw) & !(G::SIZE - 1);
+        // SAFETY: the mask above clears every granule-offset bit.
+        unsafe { TableAddr::new_unchecked(address) }
     }
 }
 

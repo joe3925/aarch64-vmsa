@@ -13,7 +13,7 @@ use portable_atomic::{AtomicU128, Ordering};
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::arch::{Capability, FeatureRequirements};
 use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
-use crate::table::{TableAddr, TableTransition};
+use crate::table::{TableAddr, TableGeometry, TableTransition};
 use crate::translation::TranslationStage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -121,11 +121,10 @@ where
     ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
     fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
 
-    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G> {
-        let raw = Self::output_address(raw, level).0;
-        // SAFETY: Descriptor address fields have no granule-offset bits.
-        unsafe { TableAddr::new_unchecked(raw) }
-    }
+    /// Every layout must override this. Routing through `output_address` is wrong once
+    /// that function normalises for the *leaf* level: a table descriptor at L1 would be
+    /// aligned to the L1 block size and lose real address bits.
+    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G>;
 
     fn next_table(
         raw: <Self::Format as DescriptorFormat>::Raw,
@@ -305,6 +304,23 @@ where
             child_level: transition.child_level(),
             stride_count: transition.child().stride_count().raw(),
         })
+    }
+}
+
+/// Clears the offset bits that a leaf at `level` does not use.
+///
+/// The low bits of a block descriptor output address are RES0; hardware treats them as
+/// zero, so decoding must do the same. Without this, `resolve_output` computes
+/// `base + offset` from a base that still carries those bits and returns a PA the
+/// hardware would never produce.
+pub(crate) fn align_output<F, G>(address: u64, level: Level) -> u64
+where
+    F: DescriptorFormat,
+    G: TranslationGranule,
+{
+    match TableGeometry::<F, G>::checked_level_shift(level) {
+        Some(shift) if shift < u64::BITS as u8 => address & !((1u64 << shift) - 1),
+        _ => address,
     }
 }
 
