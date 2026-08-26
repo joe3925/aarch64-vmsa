@@ -76,7 +76,7 @@ where
                 maximum: F::OUTPUT_ADDRESS_BITS,
             });
         }
-        if output_addr_bits < 64 && addr.raw() >> output_addr_bits != 0 {
+        if addr.raw() >> output_addr_bits != 0 {
             return Err(RootGeometryError::TableAddressOutOfRange);
         }
         Ok(Self {

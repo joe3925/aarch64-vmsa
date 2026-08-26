@@ -52,11 +52,12 @@ where
         }
 
         let bits = G::SHIFT as u16 + Self::index_bits() as u16 * (delta as u16 + 1);
-        Some(if bits > u64::BITS as u16 {
-            u64::BITS as u8
-        } else {
-            bits as u8
-        })
+        if bits > u64::BITS as u16 {
+            // An unrepresentable input width is not a valid root, and must not be
+            // reported as a 64-bit root: that made impossible levels look usable.
+            return None;
+        }
+        Some(bits as u8)
     }
 
     pub const fn entries() -> usize {
