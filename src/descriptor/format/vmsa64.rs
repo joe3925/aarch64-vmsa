@@ -115,8 +115,11 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Layout<Stage1,
     }
 
     fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
-        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !G::MASK;
-        // SAFETY: The granule-offset bits were cleared above.
+        // Bits below the granule shift are RES0 in a table descriptor. They are NOT
+        // always zero for 16KiB/64KiB granules, so they must be masked here rather
+        // than assumed away.
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !(G::SIZE - 1);
+        // SAFETY: the mask above clears every granule-offset bit.
         unsafe { TableAddr::new_unchecked(address) }
     }
 }
@@ -186,8 +189,11 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Layout<Stage2,
     }
 
     fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
-        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !G::MASK;
-        // SAFETY: The granule-offset bits were cleared above.
+        // Bits below the granule shift are RES0 in a table descriptor. They are NOT
+        // always zero for 16KiB/64KiB granules, so they must be masked here rather
+        // than assumed away.
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !(G::SIZE - 1);
+        // SAFETY: the mask above clears every granule-offset bit.
         unsafe { TableAddr::new_unchecked(address) }
     }
 }

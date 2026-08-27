@@ -481,8 +481,9 @@ where
             let level_step = self.level_step(cursor)?;
             let index_stride_count = self.index_stride_count(cursor)?;
             parent = Level::new(parent.as_i8() + level_step as i8);
-            bit_offset =
-                bit_offset.checked_add(TableGeometry::<F, G>::index_bits() * index_stride_count)?;
+            bit_offset = bit_offset.checked_add(
+                TableGeometry::<F, G>::index_bits().checked_mul(index_stride_count)?,
+            )?;
         }
 
         let index_stride_count = self.index_stride_count(depth)?;
@@ -510,8 +511,9 @@ where
         let mut bit_offset = 0u8;
         for cursor in 0..depth {
             let index_stride_count = self.index_stride_count(cursor)?;
-            bit_offset =
-                bit_offset.checked_add(TableGeometry::<F, G>::index_bits() * index_stride_count)?;
+            bit_offset = bit_offset.checked_add(
+                TableGeometry::<F, G>::index_bits().checked_mul(index_stride_count)?,
+            )?;
         }
 
         let index_stride_count = self.index_stride_count(depth)?;

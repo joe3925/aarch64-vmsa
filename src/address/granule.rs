@@ -193,7 +193,3 @@ impl TranslationGranule for Granule64KiB {
     const KIND: GranuleKind = GranuleKind::Size64KiB;
     const SHIFT: u8 = 16;
 }
-
-pub const fn div_ceil_u8(value: u8, divisor: u8) -> u8 {
-    value / divisor + ((value % divisor) != 0) as u8
-}

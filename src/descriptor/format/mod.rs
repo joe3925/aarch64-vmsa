@@ -122,6 +122,9 @@ where
     ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
     fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
 
+    /// Every layout must override this. Routing through `output_address` is wrong once
+    /// that function normalises for the *leaf* level: a table descriptor at L1 would be
+    /// aligned to the L1 block size and lose real address bits.
     fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G>;
 
     fn next_table(
@@ -290,17 +293,6 @@ impl DescriptorFormat for Vmsa128 {
     }
 }
 
-pub(crate) fn align_output<F, G>(address: u64, level: Level) -> u64
-where
-    F: DescriptorFormat,
-    G: TranslationGranule,
-{
-    match TableGeometry::<F, G>::checked_level_shift(level) {
-        Some(shift) if shift < u64::BITS as u8 => address & !((1u64 << shift) - 1),
-        _ => address,
-    }
-}
-
 pub(crate) fn require_step_by_one_transition<F, G>(
     transition: TableTransition<F, G>,
 ) -> Result<(), DescriptorError>
@@ -316,6 +308,23 @@ where
             child_level: transition.child_level(),
             stride_count: transition.child().stride_count().raw(),
         })
+    }
+}
+
+/// Clears the offset bits that a leaf at `level` does not use.
+///
+/// The low bits of a block descriptor output address are RES0; hardware treats them as
+/// zero, so decoding must do the same. Without this, `resolve_output` computes
+/// `base + offset` from a base that still carries those bits and returns a PA the
+/// hardware would never produce.
+pub(crate) fn align_output<F, G>(address: u64, level: Level) -> u64
+where
+    F: DescriptorFormat,
+    G: TranslationGranule,
+{
+    match TableGeometry::<F, G>::checked_level_shift(level) {
+        Some(shift) if shift < u64::BITS as u8 => address & !((1u64 << shift) - 1),
+        _ => address,
     }
 }
 
