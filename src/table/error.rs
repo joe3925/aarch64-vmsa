@@ -69,6 +69,11 @@ pub enum AccessError {
     InvalidTableStrideCount {
         stride_count: u8,
     },
+    InvalidRootAddressBits {
+        level: Level,
+        addr_bits: u8,
+        maximum: u8,
+    },
     TablePathLevelUnavailable {
         root_level: Level,
         level: Level,

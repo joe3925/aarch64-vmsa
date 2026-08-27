@@ -11,6 +11,18 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
+    pub const fn lowest_level() -> Level {
+        let mut level = F::EXTENDED_LOWEST_ROOT_LEVEL;
+        loop {
+            let delta = F::FINAL_LEVEL.as_i8() as i16 - level.as_i8() as i16;
+            let shift = G::SHIFT as u16 + Self::index_bits() as u16 * delta as u16;
+            if shift < F::MAX_INPUT_ADDRESS_BITS as u16 {
+                return level;
+            }
+            level = level.next();
+        }
+    }
+
     /// This function makes a stateless geometry value for the specified format and granule.
     pub const fn new() -> Self {
         Self(PhantomData)
@@ -32,7 +44,7 @@ where
                 _ => {}
             }
 
-            if !F::EXTENDED_LOWEST_ROOT_LEVEL.is_before(level) {
+            if !Self::lowest_level().is_before(level) {
                 return level;
             }
 
@@ -42,7 +54,7 @@ where
 
     /// This function returns the maximum input-address width for a root at `level`.
     pub const fn max_addr_bits(level: Level) -> Option<u8> {
-        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(Self::lowest_level()) || level.is_after(F::FINAL_LEVEL) {
             return None;
         }
 
@@ -52,8 +64,8 @@ where
         }
 
         let bits = G::SHIFT as u16 + Self::index_bits() as u16 * (delta as u16 + 1);
-        Some(if bits > u64::BITS as u16 {
-            u64::BITS as u8
+        Some(if bits > F::MAX_INPUT_ADDRESS_BITS as u16 {
+            F::MAX_INPUT_ADDRESS_BITS
         } else {
             bits as u8
         })
@@ -112,7 +124,7 @@ where
     }
 
     pub const fn checked_level_shift(level: Level) -> Option<u8> {
-        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(Self::lowest_level()) || level.is_after(F::FINAL_LEVEL) {
             return None;
         }
 

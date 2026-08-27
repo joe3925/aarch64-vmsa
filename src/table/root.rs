@@ -4,7 +4,7 @@ use crate::address::{Level, TranslationGranule};
 use crate::descriptor::DescriptorFormat;
 use crate::regime::TranslationRegime;
 
-use super::{TableAddr, TableGeometry};
+use super::{TableAddr, TableGeometry, TableShape};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RootGeometryError {
@@ -55,7 +55,8 @@ where
         addr_bits: u8,
         output_addr_bits: u8,
     ) -> Result<Self, RootGeometryError> {
-        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(TableGeometry::<F, G>::lowest_level()) || level.is_after(F::FINAL_LEVEL)
+        {
             return Err(RootGeometryError::InvalidLevel);
         }
         let maximum = match TableGeometry::<F, G>::max_addr_bits(level) {
@@ -102,6 +103,13 @@ where
 
     pub const fn output_addr_bits(self) -> u8 {
         self.output_addr_bits
+    }
+
+    pub const fn shape(self) -> TableShape<F, G> {
+        match TableShape::root_for_addr_bits(self.level, self.addr_bits) {
+            Ok(shape) => shape,
+            Err(_) => panic!("validated root geometry has a valid shape"),
+        }
     }
 
     pub const fn with_regime<R>(self) -> RootTable<F, R, G>

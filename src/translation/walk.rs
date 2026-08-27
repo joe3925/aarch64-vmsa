@@ -4,7 +4,7 @@ use crate::descriptor::{DescriptorFormat, DescriptorKind, DescriptorLayout, HasL
 use crate::regime::{RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime};
 use crate::table::{
     AccessError, NextTable, RootTable, TableAccess, TableAccessLocation, TableAddr,
-    TableAddressError, TableCursor, TableGeometry, TableWalkPath, TranslationTable,
+    TableAddressError, TableCursor, TableGeometry, TableShape, TableWalkPath, TranslationTable,
 };
 
 // SAFETY: This implementation preserves the source accessor's borrow and contract.
@@ -139,13 +139,13 @@ where
     pub(crate) fn new(
         input: WalkInputAddr,
         root: TableAddr<G>,
-        root_level: Level,
+        root_shape: TableShape<F, G>,
     ) -> Result<Self, WalkCursorError> {
-        validate_root_level::<F>(root_level)?;
+        validate_root_level::<F, G>(root_shape.level())?;
 
         Ok(Self {
             input,
-            table: TableCursor::root(root, root_level),
+            table: TableCursor::root(root, root_shape),
         })
     }
 
@@ -381,7 +381,7 @@ where
     A: TableAccess<F, G>,
 {
     pub fn new(root: RootTable<F, R, G>, access: A) -> Result<Self, WalkCursorError> {
-        validate_root_level::<F>(root.level())?;
+        validate_root_level::<F, G>(root.level())?;
         Ok(Self { root, access })
     }
 
@@ -418,7 +418,7 @@ where
             });
         }
 
-        WalkCursor::new(input, self.root.addr(), self.root.level())
+        WalkCursor::new(input, self.root.addr(), self.root.geometry().shape())
     }
 
     pub(crate) fn step(
@@ -430,14 +430,16 @@ where
     }
 }
 
-fn validate_root_level<F>(root_level: Level) -> Result<(), WalkCursorError>
+fn validate_root_level<F, G>(root_level: Level) -> Result<(), WalkCursorError>
 where
     F: DescriptorFormat,
+    G: TranslationGranule,
 {
-    if root_level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || root_level.is_after(F::FINAL_LEVEL) {
+    let lowest_level = TableGeometry::<F, G>::lowest_level();
+    if root_level.is_before(lowest_level) || root_level.is_after(F::FINAL_LEVEL) {
         Err(WalkCursorError::InvalidRootLevel {
             root_level,
-            lowest_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
+            lowest_level,
             final_level: F::FINAL_LEVEL,
         })
     } else {
@@ -719,7 +721,7 @@ where
         };
 
         let root_level = self.current.root_level();
-        let mut parent = TableCursor::root(self.current.root_addr(), root_level);
+        let mut parent = TableCursor::root(self.current.root_addr(), self.current.root_shape());
         for depth in 0..parent_depth {
             let edge = path
                 .entry(root_level, depth)
@@ -851,7 +853,7 @@ where
     pub fn start(&self) -> Walk<'_, F, R, G, A> {
         Walk::new(
             self,
-            TableCursor::root(self.root(), self.root_level()),
+            TableCursor::root(self.root(), self.root.geometry().shape()),
             Free,
         )
     }

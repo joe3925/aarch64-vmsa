@@ -69,6 +69,7 @@ where
 {
     level: Level,
     stride_count: TableStrideCount,
+    entries: usize,
     _marker: PhantomData<(F, G)>,
 }
 
@@ -78,9 +79,10 @@ where
     G: TranslationGranule,
 {
     pub const fn root(level: Level) -> Result<Self, AccessError> {
-        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(TableGeometry::<F, G>::lowest_level()) || level.is_after(F::FINAL_LEVEL)
+        {
             Err(AccessError::InvalidTableLevel {
-                root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
+                root_level: TableGeometry::<F, G>::lowest_level(),
                 level,
                 final_level: F::FINAL_LEVEL,
             })
@@ -88,23 +90,55 @@ where
             Ok(Self {
                 level,
                 stride_count: TableStrideCount::ONE,
+                entries: TableGeometry::<F, G>::entries(),
                 _marker: PhantomData,
             })
         }
     }
 
+    pub const fn root_for_addr_bits(level: Level, addr_bits: u8) -> Result<Self, AccessError> {
+        let maximum = match TableGeometry::<F, G>::max_addr_bits(level) {
+            Some(maximum) => maximum,
+            None => {
+                return Err(AccessError::InvalidTableLevel {
+                    root_level: TableGeometry::<F, G>::lowest_level(),
+                    level,
+                    final_level: F::FINAL_LEVEL,
+                });
+            }
+        };
+        if addr_bits == 0 || addr_bits > maximum {
+            return Err(AccessError::InvalidRootAddressBits {
+                level,
+                addr_bits,
+                maximum,
+            });
+        }
+        let shift = TableGeometry::<F, G>::level_shift(level);
+        let index_bits = addr_bits.saturating_sub(shift);
+        Ok(Self {
+            level,
+            stride_count: TableStrideCount::ONE,
+            entries: 1usize << index_bits,
+            _marker: PhantomData,
+        })
+    }
+
     pub fn new(level: Level, stride_count: u8) -> Result<Self, AccessError> {
-        if level.is_before(F::EXTENDED_LOWEST_ROOT_LEVEL) || level.is_after(F::FINAL_LEVEL) {
+        if level.is_before(TableGeometry::<F, G>::lowest_level()) || level.is_after(F::FINAL_LEVEL)
+        {
             return Err(AccessError::InvalidTableLevel {
-                root_level: F::EXTENDED_LOWEST_ROOT_LEVEL,
+                root_level: TableGeometry::<F, G>::lowest_level(),
                 level,
                 final_level: F::FINAL_LEVEL,
             });
         }
 
+        let stride_count = TableStrideCount::new::<F, G>(stride_count)?;
         Ok(Self {
             level,
-            stride_count: TableStrideCount::new::<F, G>(stride_count)?,
+            stride_count,
+            entries: TableGeometry::<F, G>::entries_for_stride_count(stride_count.raw()),
             _marker: PhantomData,
         })
     }
@@ -117,8 +151,8 @@ where
         self.stride_count
     }
 
-    pub fn entries(self) -> usize {
-        TableGeometry::<F, G>::entries_for_stride_count(self.stride_count.raw())
+    pub const fn entries(self) -> usize {
+        self.entries
     }
 
     pub fn alloc_layout(self) -> Result<TableAllocLayout, AccessError> {
@@ -147,11 +181,8 @@ where
     }
 
     pub fn index_for_input(self, input: u64) -> Option<usize> {
-        TableGeometry::<F, G>::index_at_level_raw_strides(
-            input,
-            self.level,
-            self.stride_count.raw(),
-        )
+        let shift = TableGeometry::<F, G>::checked_level_shift(self.level)?;
+        Some(((input >> shift) & (self.entries as u64 - 1)) as usize)
     }
 }
 
@@ -464,6 +495,7 @@ where
             level: parent,
             // SAFETY: `push` encoded and validated `index_stride_count`.
             stride_count: unsafe { TableStrideCount::new_unchecked(index_stride_count) },
+            entries: TableGeometry::<F, G>::entries_for_stride_count(index_stride_count),
             _marker: PhantomData,
         };
 
@@ -602,6 +634,7 @@ where
 {
     root: TableAddr<G>,
     root_level: Level,
+    root_shape: TableShape<F, G>,
     current: TableAddr<G>,
     shape: TableShape<F, G>,
     path: TableWalkPath<F, G>,
@@ -612,16 +645,13 @@ where
     F: DescriptorFormat,
     G: TranslationGranule,
 {
-    pub(crate) const fn root(addr: TableAddr<G>, root_level: Level) -> Self {
+    pub(crate) const fn root(addr: TableAddr<G>, shape: TableShape<F, G>) -> Self {
         Self {
             root: addr,
-            root_level,
+            root_level: shape.level,
+            root_shape: shape,
             current: addr,
-            shape: TableShape {
-                level: root_level,
-                stride_count: TableStrideCount::ONE,
-                _marker: PhantomData,
-            },
+            shape,
             path: TableWalkPath::root(),
         }
     }
@@ -629,6 +659,7 @@ where
     pub(crate) fn new(
         root: TableAddr<G>,
         root_level: Level,
+        root_shape: TableShape<F, G>,
         current: TableAddr<G>,
         shape: TableShape<F, G>,
         path: TableWalkPath<F, G>,
@@ -652,6 +683,7 @@ where
         Ok(Self {
             root,
             root_level,
+            root_shape,
             current,
             shape,
             path,
@@ -664,6 +696,10 @@ where
 
     pub const fn root_level(self) -> Level {
         self.root_level
+    }
+
+    pub const fn root_shape(self) -> TableShape<F, G> {
+        self.root_shape
     }
 
     pub const fn current(self) -> TableAddr<G> {
@@ -685,6 +721,7 @@ where
     pub(crate) const fn same_location(self, other: Self) -> bool {
         self.root.raw() == other.root.raw()
             && self.root_level.as_i8() == other.root_level.as_i8()
+            && self.root_shape.entries() == other.root_shape.entries()
             && self.current.raw() == other.current.raw()
             && self.shape.level().as_i8() == other.shape.level().as_i8()
             && self.shape.stride_count().raw() == other.shape.stride_count().raw()
@@ -721,7 +758,14 @@ where
         let mut path = self.path;
         path.push(self.root_level, self.shape, next.shape(), entry_index)?;
 
-        Self::new(self.root, self.root_level, next.addr(), next.shape(), path)
+        Self::new(
+            self.root,
+            self.root_level,
+            self.root_shape,
+            next.addr(),
+            next.shape(),
+            path,
+        )
     }
 }
 
@@ -744,6 +788,7 @@ where
         TableCursor::new(
             cursor.root_addr(),
             cursor.root_level(),
+            cursor.root_shape(),
             cursor.current(),
             cursor.shape(),
             cursor.path(),

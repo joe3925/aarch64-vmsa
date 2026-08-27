@@ -15,7 +15,7 @@ use super::vmsa64_family::{
     finish_stage1_leaf, finish_stage2_leaf, finish_table,
 };
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, insert_address,
+    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, align_output, insert_address,
     require_step_by_one_transition,
 };
 
@@ -109,8 +109,15 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Layout<Stage1,
         Ok(raw as u64)
     }
 
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        PhysAddr((raw as u128 & Self::ADDRESS_FIELD_MASK) as u64)
+    fn output_address(raw: u64, level: Level) -> PhysAddr {
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64;
+        PhysAddr(align_output::<Vmsa64, G>(address, level))
+    }
+
+    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !G::MASK;
+        // SAFETY: The granule-offset bits were cleared above.
+        unsafe { TableAddr::new_unchecked(address) }
     }
 }
 
@@ -173,8 +180,15 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Layout<Stage2,
         )?;
         Ok(raw as u64)
     }
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        PhysAddr((raw as u128 & Self::ADDRESS_FIELD_MASK) as u64)
+    fn output_address(raw: u64, level: Level) -> PhysAddr {
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64;
+        PhysAddr(align_output::<Vmsa64, G>(address, level))
+    }
+
+    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !G::MASK;
+        // SAFETY: The granule-offset bits were cleared above.
+        unsafe { TableAddr::new_unchecked(address) }
     }
 }
 
