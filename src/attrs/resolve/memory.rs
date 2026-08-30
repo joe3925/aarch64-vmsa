@@ -3,7 +3,7 @@ use crate::attrs::{
     AllocationHints, AttrError, CachePolicy, Cacheability, DeviceMemoryType, FourBit,
     FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes,
 };
-use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::descriptor::DescriptorFormat;
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
@@ -28,27 +28,27 @@ where
 pub(crate) struct MairMemory<const IGNORE_HIGH_WITHOUT_MAIR2: bool>;
 pub(crate) struct DirectStage2Memory;
 
-impl HasMemoryCodec<Stage1> for Vmsa64 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa64<E> {
     type Codec = MairMemory<true>;
 }
 
-impl HasMemoryCodec<Stage1> for Vmsa64Lpa2 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa64Lpa2<E> {
     type Codec = MairMemory<true>;
 }
 
-impl HasMemoryCodec<Stage1> for Vmsa128 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa128<E> {
     type Codec = MairMemory<false>;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa64 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa64<E> {
     type Codec = DirectStage2Memory;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa64Lpa2 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa64Lpa2<E> {
     type Codec = DirectStage2Memory;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa128 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa128<E> {
     type Codec = DirectStage2Memory;
 }
 

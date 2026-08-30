@@ -1,17 +1,22 @@
 use crate::address::{Level, TranslationGranule};
+use crate::attrs::SemanticAttributeTypes;
 use crate::attrs::{
     AttrError, DirtyBitManagement, DirtyControl, DirtyState, FourBit, LeafAp, MemoryAttributes,
-    PermissionIndices, RawShareability, RawVmsa64PermissionFields, RawVmsa64Stage1LeafAttrs,
-    RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
-    SemanticLeafAttrs, SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs,
-    SemanticTableAttrs, SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
+    PermissionIndices, PrivilegeModel, RawShareability, RawVmsa64PermissionFields,
+    RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs,
+    RawVmsa64Stage2TableAttrs, SemanticLeafAttrs, SemanticStage1LeafAttrs,
+    SemanticStage1TableAttrs, SemanticStage2LeafAttrs, SemanticTableAttrs,
+    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-    SoftwareMetadata, Stage1EffectivePermissions, Stage2Ap, Stage2ExecuteNever,
+    SoftwareMetadata, Stage1EffectivePermissions, Stage1PasModel, Stage2Ap, Stage2ExecuteNever,
     Stage2MemoryAttributes, Stage2PasContext, Stage2Permission, Stage2PermissionModel, ThreeBit,
 };
-use crate::config::format::{Vmsa64, Vmsa64Lpa2};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2};
 use crate::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
-use crate::regime::{RegimeLeafFields, RegimeTableFields, Stage1Regime, Stage2Regime};
+use crate::descriptor::{DescriptorInterpretation, HasLayout, InterpretsDescriptors};
+use crate::regime::{
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, Stage1Regime, Stage2Regime,
+};
 use crate::translation::{Stage1, Stage2};
 
 use super::codec::AttributeCodecCell;
@@ -306,80 +311,127 @@ where
     })
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64, R, G, Cfg> for Stage1
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa64<E>, R, G, Cfg> for Stage1
 where
     R: Stage1Regime<Stage = Stage1>,
     G: TranslationGranule,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig,
     R::PrivilegeModel: Stage1DirectPermissionModel,
     R::PasModel: Stage1PasResolver,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64<E>,
+            Stage1,
+            G,
+            Layout = <Vmsa64<E> as HasLayout<Stage1, G>>::Layout,
+        >,
+    Vmsa64<E>: HasRegimeLayout<R, G, Layout = <Vmsa64<E> as HasLayout<Stage1, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage1,
+            R,
+            Leaf = SemanticStage1LeafAttrs<
+                Stage1EffectivePermissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
+                SemanticVmsa64Stage1LeafControls,
+            >,
+            Table = SemanticStage1TableAttrs<
+                <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+                <R::PasModel as Stage1PasModel>::TableAttr,
+                SemanticVmsa64Stage1TableControls,
+            >,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64, R, G>, AttrError> {
-        encode_stage1_leaf_core::<Vmsa64, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        attrs: SemanticLeafAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64<E>, R, G>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        encode_stage1_leaf_core::<Vmsa64<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64, R>,
-    ) -> Result<RegimeTableFields<Vmsa64, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64<E>, R, G>, AttrError> {
         encode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64, R>, AttrError> {
-        decode_stage1_leaf_core::<Vmsa64, R::PrivilegeModel, R::PasModel, Cfg>(config, raw)
+        raw: InterpretedLeafFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64<E>, R>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        decode_stage1_leaf_core::<Vmsa64<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, raw)
     }
 
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64<E>, R>, AttrError> {
         decode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(raw)
     }
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2, R, G, Cfg> for Stage1
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2<E>, R, G, Cfg> for Stage1
 where
     R: Stage1Regime<Stage = Stage1>,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig + ShareabilityConfig,
     R::PrivilegeModel: Stage1DirectPermissionModel,
     R::PasModel: Stage1PasResolver,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64Lpa2<E>,
+            Stage1,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasLayout<Stage1, G>>::Layout,
+        >,
+    Vmsa64Lpa2<E>: HasRegimeLayout<R, G, Layout = <Vmsa64Lpa2<E> as HasLayout<Stage1, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage1,
+            R,
+            Leaf = SemanticStage1LeafAttrs<
+                Stage1EffectivePermissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
+                SemanticVmsa64Stage1LeafControls,
+            >,
+            Table = SemanticStage1TableAttrs<
+                <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+                <R::PasModel as Stage1PasModel>::TableAttr,
+                SemanticVmsa64Stage1TableControls,
+            >,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
         G::encode_shareability(config, attrs.controls.shareability)?;
-        encode_stage1_leaf_core::<Vmsa64Lpa2, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage1_leaf_core::<Vmsa64Lpa2<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeTableFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         encode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2, R>, AttrError> {
-        let mut attrs = decode_stage1_leaf_core::<Vmsa64Lpa2, R::PrivilegeModel, R::PasModel, Cfg>(
-            config, raw,
-        )?;
+        raw: InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        let mut attrs =
+            decode_stage1_leaf_core::<Vmsa64Lpa2<E>, R::PrivilegeModel, R::PasModel, Cfg>(
+                config, raw,
+            )?;
         G::decode_shareability(config, &mut attrs.controls.shareability)?;
         Ok(attrs)
     }
@@ -387,8 +439,8 @@ where
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
         decode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(raw)
     }
 }
@@ -405,7 +457,7 @@ where
     F: HasMemoryCodec<Stage2>,
     F::Codec: MemoryAttributeCodec<Stage2, C, Semantic = Stage2MemoryAttributes, Raw = FourBit>,
     P: Stage2PermissionModel,
-    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
+    A: Stage2PasContext + Stage2PasResolver<F, C, Software = FourBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
     let mut software = software_four(attrs.controls.software)?;
@@ -497,7 +549,7 @@ where
     F: HasMemoryCodec<Stage2>,
     F::Codec: MemoryAttributeCodec<Stage2, C, Semantic = Stage2MemoryAttributes, Raw = FourBit>,
     P: Stage2PermissionModel,
-    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
+    A: Stage2PasContext + Stage2PasResolver<F, C, Software = FourBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
 {
     let mut software = raw.software;
@@ -564,78 +616,115 @@ fn decode_stage2_table_core(
     })
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64, R, G, Cfg> for Stage2
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa64<E>, R, G, Cfg> for Stage2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig,
-    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64, Cfg, Software = FourBit>,
+    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64<E>, Cfg, Software = FourBit>,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64<E>,
+            Stage2,
+            G,
+            Layout = <Vmsa64<E> as HasLayout<Stage2, G>>::Layout,
+        >,
+    Vmsa64<E>: HasRegimeLayout<R, G, Layout = <Vmsa64<E> as HasLayout<Stage2, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage2,
+            R,
+            Leaf = SemanticStage2LeafAttrs<
+                Stage2Permission,
+                <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
+                SemanticVmsa64Stage2LeafControls,
+            >,
+            Table = SemanticVmsa64Stage2TableAttrs,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64, R, G>, AttrError> {
-        encode_stage2_leaf_core::<Vmsa64, R::PermissionModel, R::PasModel, Cfg>(config, attrs)
+        attrs: SemanticLeafAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64<E>, R, G>, AttrError> {
+        encode_stage2_leaf_core::<Vmsa64<E>, R::PermissionModel, R::PasModel, Cfg>(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64, R>,
-    ) -> Result<RegimeTableFields<Vmsa64, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64<E>, R, G>, AttrError> {
         encode_stage2_table_core(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64, R>, AttrError> {
-        decode_stage2_leaf_core::<Vmsa64, R::PermissionModel, R::PasModel, Cfg>(config, raw)
+        raw: InterpretedLeafFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64<E>, R>, AttrError> {
+        decode_stage2_leaf_core::<Vmsa64<E>, R::PermissionModel, R::PasModel, Cfg>(config, raw)
     }
 
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64<E>, R>, AttrError> {
         decode_stage2_table_core(raw)
     }
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2, R, G, Cfg> for Stage2
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2<E>, R, G, Cfg> for Stage2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig + ShareabilityConfig,
-    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64, Cfg, Software = FourBit>,
+    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64Lpa2<E>, Cfg, Software = FourBit>,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64Lpa2<E>,
+            Stage2,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasLayout<Stage2, G>>::Layout,
+        >,
+    Vmsa64Lpa2<E>: HasRegimeLayout<R, G, Layout = <Vmsa64Lpa2<E> as HasLayout<Stage2, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage2,
+            R,
+            Leaf = SemanticStage2LeafAttrs<
+                Stage2Permission,
+                <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
+                SemanticVmsa64Stage2LeafControls,
+            >,
+            Table = SemanticVmsa64Stage2TableAttrs,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         G::encode_shareability(config, attrs.controls.shareability)?;
-        encode_stage2_leaf_core::<Vmsa64Lpa2, R::PermissionModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage2_leaf_core::<Vmsa64Lpa2<E>, R::PermissionModel, R::PasModel, Cfg>(
+            config, attrs,
+        )
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeTableFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         encode_stage2_table_core(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2, R>, AttrError> {
-        let mut attrs = decode_stage2_leaf_core::<Vmsa64Lpa2, R::PermissionModel, R::PasModel, Cfg>(
-            config, raw,
-        )?;
+        raw: InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
+        let mut attrs =
+            decode_stage2_leaf_core::<Vmsa64Lpa2<E>, R::PermissionModel, R::PasModel, Cfg>(
+                config, raw,
+            )?;
         G::decode_shareability(config, &mut attrs.controls.shareability)?;
         Ok(attrs)
     }
@@ -643,8 +732,8 @@ where
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
         decode_stage2_table_core(raw)
     }
 }
@@ -654,5 +743,22 @@ fn software_four(metadata: SoftwareMetadata) -> Result<FourBit, AttrError> {
         Err(AttrError::RawFieldOutOfRange)
     } else {
         FourBit::new(metadata.value() as u8)
+    }
+}
+
+fn require_stage1_permission_semantics<I, C>(config: &C) -> Result<(), AttrError>
+where
+    I: DescriptorInterpretation,
+    C: Stage1PermissionConfig,
+{
+    let settings = config.stage1_permissions();
+    if (!I::SUPPORTS_STAGE1_PERMISSION_INDIRECTION
+        && !matches!(settings.base, super::Stage1BasePermissions::Direct))
+        || (!I::SUPPORTS_STAGE1_PERMISSION_OVERLAYS
+            && (settings.overlays.privileged.is_some() || settings.overlays.unprivileged.is_some()))
+    {
+        Err(AttrError::PermissionModeMismatch)
+    } else {
+        Ok(())
     }
 }

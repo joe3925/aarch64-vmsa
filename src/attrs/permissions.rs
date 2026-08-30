@@ -84,6 +84,28 @@ impl PrivilegeModel for El3Permissions {
         FeatureRequirements::NONE.require(Capability::El3);
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SmmuStreamPermissions;
+impl private::PrivilegeSealed for SmmuStreamPermissions {}
+impl PrivilegeModel for SmmuStreamPermissions {
+    type TablePermissionLimits = TwoPrivilegeTablePermissionLimits;
+    const SUPPORTS_EL0: bool = true;
+    const HAS_TTBR1: bool = true;
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[doc(hidden)]
+pub struct SmmuPrivilegedStreamPermissions;
+impl private::PrivilegeSealed for SmmuPrivilegedStreamPermissions {}
+impl PrivilegeModel for SmmuPrivilegedStreamPermissions {
+    type TablePermissionLimits = SinglePrivilegeTablePermissionLimits;
+    const SUPPORTS_EL0: bool = false;
+    const HAS_TTBR1: bool = false;
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+}
+
 impl private::Stage2Sealed for Stage2Permissions {}
 impl private::Stage2Sealed for Stage2XnxPermissions {}
 

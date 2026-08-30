@@ -26,3 +26,5 @@ It demonstrates:
 - The usage of the `Walker` to walk all the tables and retrive semantic attributes from the `table`, `leaf`, and `block` entries. 
 
 ## TODO
+
+- [ ] Support compact/partial SMMU root tables and their reduced input-address range; descendant tables already remain lazily allocated.

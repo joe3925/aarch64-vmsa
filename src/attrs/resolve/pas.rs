@@ -4,7 +4,7 @@ use crate::attrs::{
     SecureNonSecureIpaContext, SecureSelectablePa, SecureSelectablePas, Stage1PasModel,
     Stage2PasContext, TenBit,
 };
-use crate::config::format::{Vmsa64, Vmsa128};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
 
 use super::PasConfig;
 
@@ -185,41 +185,34 @@ pub(crate) trait Stage2PasResolver<F, C>: Stage2PasContext {
     ) -> Result<Self::OutputAddressSpaceAttr, AttrError>;
 }
 
-impl<C> Stage2PasResolver<Vmsa64, C> for NonSecureIpaContext {
-    type Software = FourBit;
+macro_rules! nonsecure_stage2_pas_resolver {
+    ($format:ident, $software:ty) => {
+        impl<E: DescriptorEndian, C> Stage2PasResolver<$format<E>, C> for NonSecureIpaContext {
+            type Software = $software;
 
-    fn resolve(_: &C, _: (), _: &mut FourBit) -> Result<bool, AttrError> {
-        Ok(false)
-    }
+            fn resolve(_: &C, _: (), _: &mut $software) -> Result<bool, AttrError> {
+                Ok(false)
+            }
 
-    fn decode(_: &C, descriptor_ns: bool, _: &mut FourBit) -> Result<(), AttrError> {
-        if descriptor_ns {
-            Err(AttrError::InvalidOutputAddressSpace)
-        } else {
-            Ok(())
+            fn decode(_: &C, descriptor_ns: bool, _: &mut $software) -> Result<(), AttrError> {
+                if descriptor_ns {
+                    Err(AttrError::InvalidOutputAddressSpace)
+                } else {
+                    Ok(())
+                }
+            }
         }
-    }
+    };
 }
 
-impl<C> Stage2PasResolver<Vmsa128, C> for NonSecureIpaContext {
-    type Software = TenBit;
+nonsecure_stage2_pas_resolver!(Vmsa64, FourBit);
+nonsecure_stage2_pas_resolver!(Vmsa64Lpa2, FourBit);
 
-    fn resolve(_: &C, _: (), _: &mut TenBit) -> Result<bool, AttrError> {
-        Ok(false)
-    }
-
-    fn decode(_: &C, descriptor_ns: bool, _: &mut TenBit) -> Result<(), AttrError> {
-        if descriptor_ns {
-            Err(AttrError::InvalidOutputAddressSpace)
-        } else {
-            Ok(())
-        }
-    }
-}
+nonsecure_stage2_pas_resolver!(Vmsa128, TenBit);
 
 macro_rules! secure_stage2_pas_resolver {
-    ($context:ty, $format:ty, $software:ty) => {
-        impl<C> Stage2PasResolver<$format, C> for $context
+    ($context:ty, $format:ident, $software:ty) => {
+        impl<E: DescriptorEndian, C> Stage2PasResolver<$format<E>, C> for $context
         where
             C: PasConfig<Pas = SecureSelectablePa>,
         {
@@ -253,46 +246,55 @@ macro_rules! secure_stage2_pas_resolver {
 }
 
 secure_stage2_pas_resolver!(SecureIpaContext, Vmsa64, FourBit);
+secure_stage2_pas_resolver!(SecureIpaContext, Vmsa64Lpa2, FourBit);
 secure_stage2_pas_resolver!(SecureIpaContext, Vmsa128, TenBit);
 secure_stage2_pas_resolver!(SecureNonSecureIpaContext, Vmsa64, FourBit);
+secure_stage2_pas_resolver!(SecureNonSecureIpaContext, Vmsa64Lpa2, FourBit);
 secure_stage2_pas_resolver!(SecureNonSecureIpaContext, Vmsa128, TenBit);
 
-impl<C> Stage2PasResolver<Vmsa64, C> for RealmIpaContext {
-    type Software = FourBit;
+macro_rules! realm_vmsa64_stage2_pas_resolver {
+    ($format:ident) => {
+        impl<E: DescriptorEndian, C> Stage2PasResolver<$format<E>, C> for RealmIpaContext {
+            type Software = FourBit;
 
-    fn resolve(
-        _: &C,
-        value: RealmOrNonSecurePa,
-        software: &mut FourBit,
-    ) -> Result<bool, AttrError> {
-        if software.bits() & 1 != 0 {
-            return Err(AttrError::ConflictingSemanticAttributes);
-        }
-        *software = FourBit::new(
-            software.bits() | u8::from(matches!(value, RealmOrNonSecurePa::NonSecure)),
-        )?;
-        Ok(false)
-    }
+            fn resolve(
+                _: &C,
+                value: RealmOrNonSecurePa,
+                software: &mut FourBit,
+            ) -> Result<bool, AttrError> {
+                if software.bits() & 1 != 0 {
+                    return Err(AttrError::ConflictingSemanticAttributes);
+                }
+                *software = FourBit::new(
+                    software.bits() | u8::from(matches!(value, RealmOrNonSecurePa::NonSecure)),
+                )?;
+                Ok(false)
+            }
 
-    fn decode(
-        _: &C,
-        descriptor_ns: bool,
-        software: &mut FourBit,
-    ) -> Result<RealmOrNonSecurePa, AttrError> {
-        if descriptor_ns {
-            return Err(AttrError::InvalidOutputAddressSpace);
+            fn decode(
+                _: &C,
+                descriptor_ns: bool,
+                software: &mut FourBit,
+            ) -> Result<RealmOrNonSecurePa, AttrError> {
+                if descriptor_ns {
+                    return Err(AttrError::InvalidOutputAddressSpace);
+                }
+                let value = if software.bits() & 1 != 0 {
+                    RealmOrNonSecurePa::NonSecure
+                } else {
+                    RealmOrNonSecurePa::Realm
+                };
+                *software = FourBit::new(software.bits() & !1)?;
+                Ok(value)
+            }
         }
-        let value = if software.bits() & 1 != 0 {
-            RealmOrNonSecurePa::NonSecure
-        } else {
-            RealmOrNonSecurePa::Realm
-        };
-        *software = FourBit::new(software.bits() & !1)?;
-        Ok(value)
-    }
+    };
 }
 
-impl<C> Stage2PasResolver<Vmsa128, C> for RealmIpaContext {
+realm_vmsa64_stage2_pas_resolver!(Vmsa64);
+realm_vmsa64_stage2_pas_resolver!(Vmsa64Lpa2);
+
+impl<E: DescriptorEndian, C> Stage2PasResolver<Vmsa128<E>, C> for RealmIpaContext {
     type Software = TenBit;
 
     fn resolve(_: &C, value: RealmOrNonSecurePa, _: &mut TenBit) -> Result<bool, AttrError> {

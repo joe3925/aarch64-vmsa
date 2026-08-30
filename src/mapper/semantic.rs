@@ -1,7 +1,9 @@
 use crate::address::{Level, TranslationGranule};
 use crate::attrs::{AttrError, AttributeCodec, SemanticLeafAttrs, SemanticTableAttrs};
-use crate::descriptor::{DescriptorFormat, HasLayout};
-use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
+use crate::descriptor::DescriptorFormat;
+use crate::regime::{
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, TranslationRegime,
+};
 use crate::table::{TableAccessMut, TableFrameProvider};
 use crate::translation::walk::{WalkInputAddr, WalkOutputAddr};
 use crate::translation::{WalkLeaf, WalkTable};
@@ -16,13 +18,13 @@ pub enum SemanticMapperError<AccessErrorKind, FrameErrorKind> {
 
 impl<F, R, G, A, P, M> Mapper<F, R, G, A, P, M>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
     P: TableFrameProvider<G>,
     M: MapperMode<F, G>,
-    RegimeLeafFields<F, R, G>: Copy,
+    InterpretedLeafFields<F, R, G>: Copy,
 {
     /// This function encodes attributes and adds a mapping to an invalid entry.
     ///
@@ -50,7 +52,7 @@ where
 
 impl<F, R, G> Mapping<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -66,7 +68,7 @@ where
 
 impl<F, R, G> WalkLeaf<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -82,7 +84,7 @@ where
 
 impl<F, R, G> WalkTable<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -99,10 +101,10 @@ where
 pub fn decode_semantic_leaf<F, R, G, Cfg>(
     config: &Cfg,
     level: Level,
-    raw: RegimeLeafFields<F, R, G>,
+    raw: InterpretedLeafFields<F, R, G>,
 ) -> Result<SemanticLeafAttrs<F, R>, AttrError>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     F: AttributeCodec<R, G, Cfg>,
@@ -113,10 +115,10 @@ where
 pub fn decode_semantic_table<F, R, G, Cfg>(
     config: &Cfg,
     level: Level,
-    raw: RegimeTableFields<F, R, G>,
+    raw: InterpretedTableFields<F, R, G>,
 ) -> Result<SemanticTableAttrs<F, R>, AttrError>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     F: AttributeCodec<R, G, Cfg>,

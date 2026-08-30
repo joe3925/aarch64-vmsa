@@ -1,6 +1,7 @@
 mod codec;
 mod memory;
 mod pas;
+mod smmu_v2;
 mod stage1_permissions;
 mod stage2_permissions;
 mod vmsa128;

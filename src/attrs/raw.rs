@@ -50,6 +50,30 @@ impl ThreeBit {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TwoBit(u8);
+
+impl TwoBit {
+    pub const ZERO: Self = Self(0);
+
+    pub const fn new(value: u8) -> Result<Self, AttrError> {
+        if value <= 0b11 {
+            Ok(Self(value))
+        } else {
+            Err(AttrError::RawFieldOutOfRange)
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub(crate) const fn from_masked(value: u128) -> Self {
+        Self((value & 0b11) as u8)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TenBit(u16);
 
 impl TenBit {
@@ -247,6 +271,19 @@ pub struct RawVmsa64Stage2LeafAttrs {
 pub struct RawVmsa64Stage2TableAttrs {
     pub access_flag: bool,
     pub software: FourBit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawSmmuV2Stage2LeafAttrs {
+    pub mem_attr: FourBit,
+    pub permissions: Stage2Ap,
+    pub shareability: RawShareability,
+    pub access_flag: bool,
+    pub contiguous: bool,
+    pub execute_never: bool,
+    pub software: FourBit,
+    pub read_allocate: TwoBit,
+    pub write_allocate: TwoBit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

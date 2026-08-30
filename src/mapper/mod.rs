@@ -17,9 +17,11 @@ pub use self::types::{MapLeafOutcome, Mapping, UnmapOutcome, UnmapReclaimOutcome
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::descriptor::{
-    DescriptorFormat, DescriptorKind, DescriptorLayout, HasLayout, SupportsLiveDescriptorIo,
+    DescriptorFormat, DescriptorKind, DescriptorLayout, SupportsLiveDescriptorIo,
 };
-use crate::regime::{RegimeLayout, RegimeLeafFields, RegimeTableFields, TranslationRegime};
+use crate::regime::{
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, RegimeLayout, TranslationRegime,
+};
 use crate::table::{
     NextTable, RootTable, TableAccessLocation, TableAccessMut, TableError, TableFrameProvider,
     TableGeometry, TableReclaim, TableTransition,
@@ -49,7 +51,7 @@ where
 
 impl<F, R, G, A, P> Mapper<F, R, G, A, P, Offline>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
@@ -75,7 +77,7 @@ where
 
 impl<F, R, G, A, P, I> Mapper<F, R, G, A, P, Live<I>>
 where
-    F: DescriptorFormat + SupportsLiveDescriptorIo + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + SupportsLiveDescriptorIo + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
@@ -112,13 +114,13 @@ where
 
 impl<F, R, G, A, P, M> Mapper<F, R, G, A, P, M>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
     P: TableFrameProvider<G>,
     M: MapperMode<F, G>,
-    RegimeLeafFields<F, R, G>: Copy,
+    InterpretedLeafFields<F, R, G>: Copy,
 {
     pub const fn root(&self) -> RootTable<F, R, G> {
         self.root
@@ -173,8 +175,8 @@ where
         input: WalkInputAddr,
         output: WalkOutputAddr,
         level: Level,
-        leaf_fields: RegimeLeafFields<F, R, G>,
-        table_fields: RegimeTableFields<F, R, G>,
+        leaf_fields: InterpretedLeafFields<F, R, G>,
+        table_fields: InterpretedTableFields<F, R, G>,
     ) -> Result<MapLeafOutcome, MapperError<A::Error, P::Error>> {
         self.map_leaf_with_plan(
             input,
@@ -195,7 +197,7 @@ where
         input: WalkInputAddr,
         output: WalkOutputAddr,
         level: Level,
-        leaf_fields: RegimeLeafFields<F, R, G>,
+        leaf_fields: InterpretedLeafFields<F, R, G>,
         mut planner: T,
     ) -> Result<MapLeafOutcome, MapperError<A::Error, P::Error>>
     where

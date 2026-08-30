@@ -1,6 +1,6 @@
 use crate::address::{Level, TranslationGranule};
-use crate::descriptor::{DescriptorFormat, HasLayout};
-use crate::regime::{RegimeLeafFields, TranslationRegime};
+use crate::descriptor::DescriptorFormat;
+use crate::regime::{HasRegimeLayout, InterpretedLeafFields, TranslationRegime};
 use crate::translation::walk::{WalkInputAddr, WalkLeafKind, WalkOutputAddr};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl MapLeafOutcome {
 
 pub struct UnmapOutcome<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -40,7 +40,7 @@ where
 
 impl<F, R, G> UnmapOutcome<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -51,7 +51,7 @@ where
 
 pub struct UnmapReclaimOutcome<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -62,7 +62,7 @@ where
 
 impl<F, R, G> UnmapReclaimOutcome<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -81,7 +81,7 @@ where
 
 pub struct Mapping<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -94,12 +94,12 @@ where
     pub(super) entry_index: usize,
     pub(super) raw: F::Raw,
     pub(super) kind: WalkLeafKind,
-    pub(super) fields: RegimeLeafFields<F, R, G>,
+    pub(super) fields: InterpretedLeafFields<F, R, G>,
 }
 
 impl<F, R, G> Mapping<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -139,7 +139,7 @@ where
         self.kind
     }
 
-    pub const fn fields(&self) -> &RegimeLeafFields<F, R, G> {
+    pub const fn fields(&self) -> &InterpretedLeafFields<F, R, G> {
         &self.fields
     }
 }

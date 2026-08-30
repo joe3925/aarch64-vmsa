@@ -43,3 +43,56 @@ pub struct SecureEl2NonSecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RealmEl2Stage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
+
+pub mod smmu_v2 {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecureStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecurePrivilegedStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecureStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecurePrivilegedStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecureIpaStage2;
+}
+
+pub mod smmu_v3 {
+    use core::marker::PhantomData;
+
+    use super::Stage2Permissions;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecureStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecurePrivilegedStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecureStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecurePrivilegedStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RealmStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RealmPrivilegedStreamStage1;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct NonSecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct SecureStreamNonSecureIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    pub struct RealmIpaStage2<P = Stage2Permissions>(PhantomData<fn() -> P>);
+}

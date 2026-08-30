@@ -1,6 +1,6 @@
 use crate::address::TranslationGranule;
-use crate::descriptor::{DescriptorFormat, HasLayout};
-use crate::regime::{RegimeLeafFields, TranslationRegime};
+use crate::descriptor::DescriptorFormat;
+use crate::regime::{HasRegimeLayout, InterpretedLeafFields, TranslationRegime};
 use crate::table::{TableAccessMut, TableFrameProvider, TableReclaim};
 use crate::translation::WalkEntry;
 use crate::translation::walk::{ResolvedWalkLeaf, WalkCursor, WalkInputAddr};
@@ -10,7 +10,7 @@ use super::{Mapper, MapperError, MapperMode, Mapping};
 
 pub(super) struct UnmapReclaimStep<F, R, G>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
 {
@@ -21,13 +21,13 @@ where
 
 impl<F, R, G, A, P, M> Mapper<F, R, G, A, P, M>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
     R: TranslationRegime,
     G: TranslationGranule,
     A: TableAccessMut<F, G>,
     P: TableFrameProvider<G>,
     M: MapperMode<F, G>,
-    RegimeLeafFields<F, R, G>: Copy,
+    InterpretedLeafFields<F, R, G>: Copy,
 {
     pub(super) fn unmap_reclaim_at(
         &mut self,

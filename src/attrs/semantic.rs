@@ -31,6 +31,13 @@ pub enum AllocationHints {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum SmmuV2AllocationHint {
+    UsePreviousStage,
+    Allocate,
+    NoAllocate,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum MemoryTransience {
     Transient,
     NonTransient,
@@ -187,6 +194,16 @@ pub struct SemanticVmsa64Stage2LeafControls {
     pub access_flag: bool,
     pub dirty: DirtyControl,
     pub contiguous: bool,
+    pub software: SoftwareMetadata,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SemanticSmmuV2Stage2LeafControls {
+    pub shareability: Shareability,
+    pub access_flag: bool,
+    pub contiguous: bool,
+    pub read_allocate: SmmuV2AllocationHint,
+    pub write_allocate: SmmuV2AllocationHint,
     pub software: SoftwareMetadata,
 }
 

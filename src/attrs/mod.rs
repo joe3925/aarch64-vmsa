@@ -17,7 +17,7 @@ pub use permissions::{
 };
 pub(crate) use permissions::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, PrivilegeModel,
-    Stage2PermissionModel,
+    SmmuPrivilegedStreamPermissions, SmmuStreamPermissions, Stage2PermissionModel,
 };
 pub(crate) use raw::*;
 pub use resolve::{
@@ -53,5 +53,6 @@ pub enum AttrError {
     PermissionModeMismatch,
     InvalidD128Alias,
     InvalidD128Configuration,
+    InvalidSmmuV2AllocationHint,
     ConflictingSemanticAttributes,
 }

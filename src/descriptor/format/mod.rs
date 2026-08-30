@@ -1,7 +1,10 @@
+mod smmu_v2;
 mod vmsa128;
 mod vmsa64;
 mod vmsa64_family;
 mod vmsa64_lpa2;
+
+pub(crate) use smmu_v2::SmmuV2Vmsa64Stage2Layout;
 
 #[cfg(target_has_atomic = "64")]
 use portable_atomic::AtomicU64;
@@ -12,7 +15,7 @@ use portable_atomic::{AtomicU128, Ordering};
 
 use crate::address::{Level, PhysAddr, TranslationGranule};
 use crate::arch::{Capability, FeatureRequirements};
-use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::table::{TableAddr, TableGeometry, TableTransition};
 use crate::translation::TranslationStage;
 
@@ -56,6 +59,7 @@ pub enum DescriptorError {
 mod private {
     pub trait FormatSealed {}
     pub trait LayoutSealed {}
+    pub trait InterpretationSealed {}
 }
 
 pub trait DescriptorFormat: private::FormatSealed + Copy + Sized + 'static {
@@ -153,18 +157,95 @@ where
     type Layout: DescriptorLayout<S, G, Format = Self>;
 }
 
-impl private::FormatSealed for Vmsa64 {}
-impl private::FormatSealed for Vmsa64Lpa2 {}
-impl private::FormatSealed for Vmsa128 {}
+/// Selects the raw descriptor interpretation used by a translation regime.
+pub trait DescriptorInterpretation: private::InterpretationSealed + Copy + 'static {
+    /// Whether stage-1 permission indirection is defined for this interpreter.
+    const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool;
+    /// Whether stage-1 permission overlays are defined for this interpreter.
+    const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool;
+}
+
+/// Maps a format, stage, and granule to the layout understood by an interpreter.
+pub trait InterpretsDescriptors<F, S, G>: DescriptorInterpretation
+where
+    F: DescriptorFormat,
+    S: TranslationStage,
+    G: TranslationGranule,
+{
+    type Layout: DescriptorLayout<S, G, Format = F>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PeDescriptors;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SmmuV2Descriptors;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SmmuV3Descriptors;
+
+impl private::InterpretationSealed for PeDescriptors {}
+impl private::InterpretationSealed for SmmuV2Descriptors {}
+impl private::InterpretationSealed for SmmuV3Descriptors {}
+impl DescriptorInterpretation for PeDescriptors {
+    const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool = true;
+    const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool = true;
+}
+impl DescriptorInterpretation for SmmuV2Descriptors {
+    const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool = false;
+    const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool = false;
+}
+impl DescriptorInterpretation for SmmuV3Descriptors {
+    const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool = true;
+    const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool = false;
+}
+
+impl<F, S, G> InterpretsDescriptors<F, S, G> for PeDescriptors
+where
+    F: DescriptorFormat + HasLayout<S, G>,
+    S: TranslationStage,
+    G: TranslationGranule,
+{
+    type Layout = F::Layout;
+}
+
+impl<F, S, G> InterpretsDescriptors<F, S, G> for SmmuV3Descriptors
+where
+    F: DescriptorFormat + HasLayout<S, G>,
+    S: TranslationStage,
+    G: TranslationGranule,
+{
+    type Layout = F::Layout;
+}
+
+impl<E, G> InterpretsDescriptors<Vmsa64<E>, crate::translation::Stage1, G> for SmmuV2Descriptors
+where
+    E: DescriptorEndian,
+    G: TranslationGranule,
+{
+    type Layout = <Vmsa64<E> as HasLayout<crate::translation::Stage1, G>>::Layout;
+}
+
+impl<E, G> InterpretsDescriptors<Vmsa64<E>, crate::translation::Stage2, G> for SmmuV2Descriptors
+where
+    E: DescriptorEndian,
+    G: TranslationGranule,
+{
+    type Layout = smmu_v2::SmmuV2Vmsa64Stage2Layout<E, G>;
+}
+
+impl<E: DescriptorEndian> private::FormatSealed for Vmsa64<E> {}
+impl<E: DescriptorEndian> private::FormatSealed for Vmsa64Lpa2<E> {}
+impl<E: DescriptorEndian> private::FormatSealed for Vmsa128<E> {}
 
 #[cfg(target_has_atomic = "64")]
-impl SupportsLiveDescriptorIo for Vmsa64 {}
+impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64<E> {}
 #[cfg(target_has_atomic = "64")]
-impl SupportsLiveDescriptorIo for Vmsa64Lpa2 {}
+impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64Lpa2<E> {}
 #[cfg(target_has_atomic = "128")]
-impl SupportsLiveDescriptorIo for Vmsa128 {}
+impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa128<E> {}
 
-impl DescriptorFormat for Vmsa64 {
+impl<E: DescriptorEndian> DescriptorFormat for Vmsa64<E> {
     type Raw = u64;
     const DESCRIPTOR_BYTES: usize = 8;
     const DESCRIPTOR_SHIFT: u8 = 3;
@@ -184,29 +265,29 @@ impl DescriptorFormat for Vmsa64 {
         #[cfg(target_has_atomic = "64")]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
+            E::decode_u64(unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) })
         }
         #[cfg(not(target_has_atomic = "64"))]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { core::ptr::read_volatile(ptr) }
+            E::decode_u64(unsafe { core::ptr::read_volatile(ptr) })
         }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
         #[cfg(target_has_atomic = "64")]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { AtomicU64::from_ptr(ptr).store(raw, Ordering::Release) }
+            unsafe { AtomicU64::from_ptr(ptr).store(E::encode_u64(raw), Ordering::Release) }
         }
         #[cfg(not(target_has_atomic = "64"))]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { core::ptr::write_volatile(ptr, raw) }
+            unsafe { core::ptr::write_volatile(ptr, E::encode_u64(raw)) }
         }
     }
 }
 
-impl DescriptorFormat for Vmsa64Lpa2 {
+impl<E: DescriptorEndian> DescriptorFormat for Vmsa64Lpa2<E> {
     type Raw = u64;
     const DESCRIPTOR_BYTES: usize = 8;
     const DESCRIPTOR_SHIFT: u8 = 3;
@@ -228,29 +309,29 @@ impl DescriptorFormat for Vmsa64Lpa2 {
         #[cfg(target_has_atomic = "64")]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
+            E::decode_u64(unsafe { AtomicU64::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) })
         }
         #[cfg(not(target_has_atomic = "64"))]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { core::ptr::read_volatile(ptr) }
+            E::decode_u64(unsafe { core::ptr::read_volatile(ptr) })
         }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
         #[cfg(target_has_atomic = "64")]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { AtomicU64::from_ptr(ptr).store(raw, Ordering::Release) }
+            unsafe { AtomicU64::from_ptr(ptr).store(E::encode_u64(raw), Ordering::Release) }
         }
         #[cfg(not(target_has_atomic = "64"))]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { core::ptr::write_volatile(ptr, raw) }
+            unsafe { core::ptr::write_volatile(ptr, E::encode_u64(raw)) }
         }
     }
 }
 
-impl DescriptorFormat for Vmsa128 {
+impl<E: DescriptorEndian> DescriptorFormat for Vmsa128<E> {
     type Raw = u128;
     const DESCRIPTOR_BYTES: usize = 16;
     const DESCRIPTOR_SHIFT: u8 = 4;
@@ -271,24 +352,24 @@ impl DescriptorFormat for Vmsa128 {
         #[cfg(target_has_atomic = "128")]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { AtomicU128::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) }
+            E::decode_u128(unsafe { AtomicU128::from_ptr(ptr.cast_mut()).load(Ordering::Acquire) })
         }
         #[cfg(not(target_has_atomic = "128"))]
         {
             // SAFETY: The caller gives an aligned and readable descriptor pointer.
-            unsafe { core::ptr::read_volatile(ptr) }
+            E::decode_u128(unsafe { core::ptr::read_volatile(ptr) })
         }
     }
     unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw) {
         #[cfg(target_has_atomic = "128")]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { AtomicU128::from_ptr(ptr).store(raw, Ordering::Release) }
+            unsafe { AtomicU128::from_ptr(ptr).store(E::encode_u128(raw), Ordering::Release) }
         }
         #[cfg(not(target_has_atomic = "128"))]
         {
             // SAFETY: The caller gives an aligned and writable descriptor pointer.
-            unsafe { core::ptr::write_volatile(ptr, raw) }
+            unsafe { core::ptr::write_volatile(ptr, E::encode_u128(raw)) }
         }
     }
 }

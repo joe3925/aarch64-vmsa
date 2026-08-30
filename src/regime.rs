@@ -4,15 +4,22 @@ use crate::attrs::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, FixedNonSecurePas,
     FixedRealmIpaPas, NonSecureIpaContext, PasModel, PrivilegeModel, RealmIpaContext,
     RealmOrNonSecurePaPas, RootExtendedPas, SecureIpaContext, SecureNonSecureIpaContext,
-    SecureSelectablePas, Stage2PermissionModel,
+    SecureSelectablePas, SmmuPrivilegedStreamPermissions, SmmuStreamPermissions,
+    Stage2PermissionModel,
 };
+use crate::config::format::{DescriptorEndian, Vmsa64};
 use crate::config::regime::{
     NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
     RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2, RootEl3Stage1,
     SecureEl1Stage1, SecureEl2HostStage1, SecureEl2NonSecureIpaStage2, SecureEl2SecureIpaStage2,
     SecureEl2Stage1,
 };
-use crate::descriptor::{DescriptorFormat, DescriptorLayout, HasLayout};
+use crate::config::regime::{smmu_v2, smmu_v3};
+use crate::config::stage2::Stage2Permissions;
+use crate::descriptor::{
+    DescriptorFormat, DescriptorInterpretation, DescriptorLayout, HasLayout, InterpretsDescriptors,
+    PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors,
+};
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -20,6 +27,7 @@ pub enum RegimeOwner {
     El1,
     El2,
     El3,
+    Smmu,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -44,11 +52,15 @@ mod private {
 pub trait TranslationRegime: private::Sealed + Copy + 'static {
     type Stage: TranslationStage;
     type PasModel: PasModel;
+    type DescriptorInterpretation: DescriptorInterpretation;
 
     const OWNER: RegimeOwner;
     const SPACE: TranslationSpace;
     const REQUIRED_FEATURES: FeatureRequirements;
 }
+
+/// A PE-owned translation regime accepted by the PE feature validators.
+pub trait PeTranslationRegime: TranslationRegime<DescriptorInterpretation = PeDescriptors> {}
 
 pub trait Stage1Regime: TranslationRegime {
     type PrivilegeModel: PrivilegeModel;
@@ -63,17 +75,52 @@ pub trait Stage2Regime: TranslationRegime {
     const IPA_SPACE: IpaSpace;
 }
 
-pub(crate) type RegimeLayout<F, R, G> =
-    <F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout;
+pub trait HasRegimeLayout<R, G>: DescriptorFormat
+where
+    R: TranslationRegime,
+    G: TranslationGranule,
+{
+    type Layout: DescriptorLayout<R::Stage, G, Format = Self>;
+}
 
+impl<F, R, G> HasRegimeLayout<R, G> for F
+where
+    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    R: PeTranslationRegime,
+    G: TranslationGranule,
+{
+    type Layout = <F as HasLayout<R::Stage, G>>::Layout;
+}
+
+pub(crate) type RegimeLayout<F, R, G> = <F as HasRegimeLayout<R, G>>::Layout;
+
+/// Raw fields selected by the PE layout for `R`'s translation stage.
+///
+/// This preserves the original public alias for PE-oriented generic code. Use
+/// [`InterpretedLeafFields`] when the regime's descriptor interpretation must be honored.
 pub type RegimeLeafFields<F, R, G> =
     <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
         <R as TranslationRegime>::Stage,
         G,
     >>::LeafFields;
 
+/// Raw leaf fields selected by the descriptor interpretation associated with `R`.
+pub type InterpretedLeafFields<F, R, G> =
+    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<
+        <R as TranslationRegime>::Stage,
+        G,
+    >>::LeafFields;
+
+/// Raw fields selected by the PE table layout for `R`'s translation stage.
 pub type RegimeTableFields<F, R, G> =
     <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
+        <R as TranslationRegime>::Stage,
+        G,
+    >>::TableFields;
+
+/// Raw table fields selected by the descriptor interpretation associated with `R`.
+pub type InterpretedTableFields<F, R, G> =
+    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<
         <R as TranslationRegime>::Stage,
         G,
     >>::TableFields;
@@ -83,7 +130,7 @@ pub enum RegimeValidationError {
     UnsupportedFeaturesOrSecurityState,
 }
 
-pub fn validate_regime<R: TranslationRegime>(
+pub fn validate_regime<R: PeTranslationRegime>(
     features: &VmsaFeatures,
 ) -> Result<(), RegimeValidationError> {
     if features.verify(R::REQUIRED_FEATURES) {
@@ -95,8 +142,8 @@ pub fn validate_regime<R: TranslationRegime>(
 
 pub fn validate_regime_format<F, R, G>(features: &VmsaFeatures) -> Result<(), RegimeValidationError>
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
-    R: TranslationRegime,
+    F: DescriptorFormat + HasRegimeLayout<R, G>,
+    R: PeTranslationRegime,
     G: TranslationGranule,
 {
     let required = R::REQUIRED_FEATURES
@@ -114,12 +161,14 @@ macro_rules! stage1_regime {
         impl TranslationRegime for $name {
             type Stage = Stage1;
             type PasModel = $pas;
+            type DescriptorInterpretation = PeDescriptors;
             const OWNER: RegimeOwner = $owner;
             const SPACE: TranslationSpace = $space;
             const REQUIRED_FEATURES: FeatureRequirements =
                 <$permissions as PrivilegeModel>::REQUIRED_FEATURES
                     .union(<$pas as PasModel>::REQUIRED_FEATURES);
         }
+        impl PeTranslationRegime for $name {}
         impl Stage1Regime for $name {
             type PrivilegeModel = $permissions;
             const SUPPORTS_EL0: bool = <$permissions as PrivilegeModel>::SUPPORTS_EL0;
@@ -205,11 +254,13 @@ macro_rules! stage2_regime {
         impl<P: Stage2PermissionModel> TranslationRegime for $name<P> {
             type Stage = Stage2;
             type PasModel = $context;
+            type DescriptorInterpretation = PeDescriptors;
             const OWNER: RegimeOwner = RegimeOwner::El2;
             const SPACE: TranslationSpace = $space;
             const REQUIRED_FEATURES: FeatureRequirements =
                 P::REQUIRED_FEATURES.union(<$context as PasModel>::REQUIRED_FEATURES);
         }
+        impl<P: Stage2PermissionModel> PeTranslationRegime for $name<P> {}
         impl<P: Stage2PermissionModel> Stage2Regime for $name<P> {
             type PermissionModel = P;
             const IPA_SPACE: IpaSpace = $ipa;
@@ -237,6 +288,191 @@ stage2_regime!(
 );
 stage2_regime!(
     RealmEl2Stage2,
+    RealmIpaContext,
+    TranslationSpace::Realm,
+    IpaSpace::Realm
+);
+
+macro_rules! smmu_stage1_regime {
+    ($name:path, $interpretation:ty, $space:expr, $permissions:ty, $pas:ty) => {
+        impl private::Sealed for $name {}
+        impl TranslationRegime for $name {
+            type Stage = Stage1;
+            type PasModel = $pas;
+            type DescriptorInterpretation = $interpretation;
+            const OWNER: RegimeOwner = RegimeOwner::Smmu;
+            const SPACE: TranslationSpace = $space;
+            const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+        }
+        impl Stage1Regime for $name {
+            type PrivilegeModel = $permissions;
+            const SUPPORTS_EL0: bool = <$permissions as PrivilegeModel>::SUPPORTS_EL0;
+            const HAS_TTBR1: bool = <$permissions as PrivilegeModel>::HAS_TTBR1;
+        }
+        impl<F, G> HasRegimeLayout<$name, G> for F
+        where
+            F: DescriptorFormat,
+            G: TranslationGranule,
+            $interpretation: InterpretsDescriptors<F, Stage1, G>,
+        {
+            type Layout = <$interpretation as InterpretsDescriptors<F, Stage1, G>>::Layout;
+        }
+    };
+}
+
+macro_rules! smmu_stage2_regime {
+    ($name:ty, $interpretation:ty, $context:ty, $space:expr, $ipa:expr, $permissions:ty) => {
+        impl private::Sealed for $name {}
+        impl TranslationRegime for $name {
+            type Stage = Stage2;
+            type PasModel = $context;
+            type DescriptorInterpretation = $interpretation;
+            const OWNER: RegimeOwner = RegimeOwner::Smmu;
+            const SPACE: TranslationSpace = $space;
+            const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+        }
+        impl Stage2Regime for $name {
+            type PermissionModel = $permissions;
+            const IPA_SPACE: IpaSpace = $ipa;
+        }
+    };
+}
+
+smmu_stage1_regime!(
+    smmu_v2::NonSecureStreamStage1,
+    SmmuV2Descriptors,
+    TranslationSpace::NonSecure,
+    SmmuStreamPermissions,
+    FixedNonSecurePas
+);
+smmu_stage1_regime!(
+    smmu_v2::NonSecurePrivilegedStreamStage1,
+    SmmuV2Descriptors,
+    TranslationSpace::NonSecure,
+    SmmuPrivilegedStreamPermissions,
+    FixedNonSecurePas
+);
+smmu_stage1_regime!(
+    smmu_v2::SecureStreamStage1,
+    SmmuV2Descriptors,
+    TranslationSpace::Secure,
+    SmmuStreamPermissions,
+    SecureSelectablePas
+);
+smmu_stage1_regime!(
+    smmu_v2::SecurePrivilegedStreamStage1,
+    SmmuV2Descriptors,
+    TranslationSpace::Secure,
+    SmmuPrivilegedStreamPermissions,
+    SecureSelectablePas
+);
+smmu_stage2_regime!(
+    smmu_v2::NonSecureIpaStage2,
+    SmmuV2Descriptors,
+    NonSecureIpaContext,
+    TranslationSpace::NonSecure,
+    IpaSpace::NonSecure,
+    Stage2Permissions
+);
+
+impl<E, G> HasRegimeLayout<smmu_v2::NonSecureIpaStage2, G> for Vmsa64<E>
+where
+    E: DescriptorEndian,
+    G: TranslationGranule,
+{
+    type Layout = crate::descriptor::format::SmmuV2Vmsa64Stage2Layout<E, G>;
+}
+
+smmu_stage1_regime!(
+    smmu_v3::NonSecureStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::NonSecure,
+    SmmuStreamPermissions,
+    FixedNonSecurePas
+);
+smmu_stage1_regime!(
+    smmu_v3::NonSecurePrivilegedStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::NonSecure,
+    SmmuPrivilegedStreamPermissions,
+    FixedNonSecurePas
+);
+smmu_stage1_regime!(
+    smmu_v3::SecureStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::Secure,
+    SmmuStreamPermissions,
+    SecureSelectablePas
+);
+smmu_stage1_regime!(
+    smmu_v3::SecurePrivilegedStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::Secure,
+    SmmuPrivilegedStreamPermissions,
+    SecureSelectablePas
+);
+smmu_stage1_regime!(
+    smmu_v3::RealmStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::Realm,
+    SmmuStreamPermissions,
+    FixedRealmIpaPas
+);
+smmu_stage1_regime!(
+    smmu_v3::RealmPrivilegedStreamStage1,
+    SmmuV3Descriptors,
+    TranslationSpace::Realm,
+    SmmuPrivilegedStreamPermissions,
+    RealmOrNonSecurePaPas
+);
+
+macro_rules! smmu_v3_stage2_regime {
+    ($name:ident, $context:ty, $space:expr, $ipa:expr) => {
+        impl<P: Stage2PermissionModel> private::Sealed for smmu_v3::$name<P> {}
+        impl<P: Stage2PermissionModel> TranslationRegime for smmu_v3::$name<P> {
+            type Stage = Stage2;
+            type PasModel = $context;
+            type DescriptorInterpretation = SmmuV3Descriptors;
+            const OWNER: RegimeOwner = RegimeOwner::Smmu;
+            const SPACE: TranslationSpace = $space;
+            const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+        }
+        impl<P: Stage2PermissionModel> Stage2Regime for smmu_v3::$name<P> {
+            type PermissionModel = P;
+            const IPA_SPACE: IpaSpace = $ipa;
+        }
+        impl<F, G, P> HasRegimeLayout<smmu_v3::$name<P>, G> for F
+        where
+            F: DescriptorFormat,
+            G: TranslationGranule,
+            P: Stage2PermissionModel,
+            SmmuV3Descriptors: InterpretsDescriptors<F, Stage2, G>,
+        {
+            type Layout = <SmmuV3Descriptors as InterpretsDescriptors<F, Stage2, G>>::Layout;
+        }
+    };
+}
+
+smmu_v3_stage2_regime!(
+    NonSecureIpaStage2,
+    NonSecureIpaContext,
+    TranslationSpace::NonSecure,
+    IpaSpace::NonSecure
+);
+smmu_v3_stage2_regime!(
+    SecureIpaStage2,
+    SecureIpaContext,
+    TranslationSpace::Secure,
+    IpaSpace::Secure
+);
+smmu_v3_stage2_regime!(
+    SecureStreamNonSecureIpaStage2,
+    SecureNonSecureIpaContext,
+    TranslationSpace::Secure,
+    IpaSpace::NonSecure
+);
+smmu_v3_stage2_regime!(
+    RealmIpaStage2,
     RealmIpaContext,
     TranslationSpace::Realm,
     IpaSpace::Realm

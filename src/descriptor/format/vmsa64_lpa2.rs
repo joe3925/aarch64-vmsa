@@ -5,7 +5,7 @@ use crate::attrs::{
     FourBit, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
 };
-use crate::config::format::Vmsa64Lpa2;
+use crate::config::format::{DescriptorEndian, Vmsa64Lpa2};
 use crate::descriptor::layout::{vmsa64 as b, vmsa64_lpa2 as lpa2};
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
@@ -20,19 +20,21 @@ use super::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa64Lpa2Layout<S, G>(PhantomData<(S, G)>);
+pub struct Vmsa64Lpa2Layout<E, S, G>(PhantomData<(E, S, G)>);
 
-impl<S, G> super::private::LayoutSealed for Vmsa64Lpa2Layout<S, G> {}
+impl<E, S, G> super::private::LayoutSealed for Vmsa64Lpa2Layout<E, S, G> {}
 
-impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64Lpa2 {
-    type Layout = Vmsa64Lpa2Layout<Stage1, G>;
+impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64Lpa2<E> {
+    type Layout = Vmsa64Lpa2Layout<E, Stage1, G>;
 }
-impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64Lpa2 {
-    type Layout = Vmsa64Lpa2Layout<Stage2, G>;
+impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64Lpa2<E> {
+    type Layout = Vmsa64Lpa2Layout<E, Stage2, G>;
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Stage1, G> {
-    type Format = Vmsa64Lpa2;
+impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
+    for Vmsa64Lpa2Layout<E, Stage1, G>
+{
+    type Format = Vmsa64Lpa2<E>;
     type LeafFields = RawVmsa64Stage1LeafAttrs;
     type TableFields = RawVmsa64Stage1TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = address_field_mask(G::KIND);
@@ -102,7 +104,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Sta
     }
     fn table_descriptor(
         table_addr: TableAddr<G>,
-        transition: TableTransition<Vmsa64Lpa2, G>,
+        transition: TableTransition<Vmsa64Lpa2<E>, G>,
         f: Self::TableFields,
     ) -> Result<u64, DescriptorError> {
         require_step_by_one_transition(transition)?;
@@ -133,8 +135,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Sta
     }
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Lpa2Layout<Stage2, G> {
-    type Format = Vmsa64Lpa2;
+impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
+    for Vmsa64Lpa2Layout<E, Stage2, G>
+{
+    type Format = Vmsa64Lpa2<E>;
     type LeafFields = RawVmsa64Stage2LeafAttrs;
     type TableFields = RawVmsa64Stage2TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = address_field_mask(G::KIND);
@@ -189,7 +193,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Lpa2Layout<Sta
     }
     fn table_descriptor(
         table_addr: TableAddr<G>,
-        transition: TableTransition<Vmsa64Lpa2, G>,
+        transition: TableTransition<Vmsa64Lpa2<E>, G>,
         f: Self::TableFields,
     ) -> Result<u64, DescriptorError> {
         require_step_by_one_transition(transition)?;
