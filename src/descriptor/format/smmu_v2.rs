@@ -10,7 +10,7 @@ use crate::table::{TableAddr, TableTransition};
 use crate::translation::Stage2;
 
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, insert_address,
+    DescriptorError, DescriptorKind, DescriptorLayout, align_output, insert_address,
     require_step_by_one_transition,
 };
 
@@ -115,8 +115,9 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
         Ok(raw as u64)
     }
 
-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
-        PhysAddr((raw as u128 & Self::ADDRESS_FIELD_MASK) as u64)
+    fn output_address(raw: u64, level: Level) -> PhysAddr {
+        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64;
+        PhysAddr(align_output::<Vmsa64<E>, G>(address, level))
     }
 
     fn table_address(raw: u64, _level: Level) -> TableAddr<G> {

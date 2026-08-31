@@ -1,7 +1,8 @@
 use crate::attrs::{
     AttrError, DataAccess, El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions,
     FourBit, LeafAp, PermissionIndices, PrivilegeModel, SinglePrivilegeTablePermissionLimits,
-    Stage1EffectivePermissions, TableAp, TwoPrivilegeTablePermissionLimits,
+    SmmuPrivilegedStreamPermissions, SmmuStreamPermissions, Stage1EffectivePermissions, TableAp,
+    TwoPrivilegeTablePermissionLimits,
 };
 
 use super::Stage1PermissionConfig;
@@ -261,6 +262,7 @@ macro_rules! single_privilege_model {
 
 single_privilege_model!(El2Permissions);
 single_privilege_model!(El3Permissions);
+single_privilege_model!(SmmuPrivilegedStreamPermissions);
 
 macro_rules! two_privilege_model {
     ($model:ty) => {
@@ -304,6 +306,7 @@ macro_rules! two_privilege_model {
 
 two_privilege_model!(El1And0Permissions);
 two_privilege_model!(El2And0Permissions);
+two_privilege_model!(SmmuStreamPermissions);
 
 pub struct Stage1PermissionResolver<'a, C: ?Sized, I = FourBit> {
     config: &'a C,
