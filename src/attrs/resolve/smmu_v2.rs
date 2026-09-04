@@ -133,7 +133,7 @@ fn encode_allocation(value: SmmuV2AllocationHint) -> Result<TwoBit, AttrError> {
 
 fn decode_allocation(value: TwoBit) -> Result<SmmuV2AllocationHint, AttrError> {
     match value.bits() {
-        0b00 => Ok(SmmuV2AllocationHint::UsePreviousStage),
+        0b00 | 0b01 => Ok(SmmuV2AllocationHint::UsePreviousStage),
         0b10 => Ok(SmmuV2AllocationHint::Allocate),
         0b11 => Ok(SmmuV2AllocationHint::NoAllocate),
         _ => Err(AttrError::InvalidSmmuV2AllocationHint),

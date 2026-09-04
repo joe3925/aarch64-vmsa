@@ -32,11 +32,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
         let kind = super::vmsa64::kind(G::KIND, raw, level);
         let raw = raw as u128;
         let valid = match kind {
-            DescriptorKind::Block | DescriptorKind::Page => {
-                raw & bits::stage2_leaf::RES0_MASK == 0
-                    && bits::RACFG.extract(raw) != 0b01
-                    && bits::WACFG.extract(raw) != 0b01
-            }
+            DescriptorKind::Block | DescriptorKind::Page => raw & bits::stage2_leaf::RES0_MASK == 0,
             DescriptorKind::Table => {
                 raw & bits::stage2_table::RES0_MASK == 0
                     && raw & bits::stage2_table::RES1_MASK == bits::stage2_table::RES1_MASK
