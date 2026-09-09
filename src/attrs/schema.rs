@@ -1,6 +1,6 @@
 use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::descriptor::{DescriptorFormat, PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors};
-use crate::regime::{Stage1Regime, Stage2Regime, TranslationRegime};
+use crate::regime::{Stage1PrivilegeModel, Stage1Regime, Stage2Regime, TranslationRegime};
 use crate::translation::{Stage1, Stage2};
 
 use super::{
@@ -9,8 +9,8 @@ use super::{
     SemanticVmsa64Stage1TableControls, SemanticVmsa64Stage2LeafControls,
     SemanticVmsa64Stage2TableAttrs, SemanticVmsa128Stage1LeafControls,
     SemanticVmsa128Stage1TableAttrs, SemanticVmsa128Stage2LeafControls,
-    SemanticVmsa128Stage2TableAttrs, Stage1EffectivePermissions, Stage1PasModel, Stage2PasContext,
-    Stage2Permission,
+    SemanticVmsa128Stage2TableAttrs, Stage1PasModel, Stage1Permissions, Stage2PasContext,
+    Stage2Permissions,
 };
 
 /// Selects the semantic schema exposed by a descriptor format.
@@ -94,12 +94,12 @@ where
     R::PasModel: Stage1PasModel,
 {
     type Leaf = SemanticStage1LeafAttrs<
-        Stage1EffectivePermissions,
+        Stage1Permissions,
         <R::PasModel as Stage1PasModel>::LeafAttr,
         SemanticVmsa64Stage1LeafControls,
     >;
     type Table = SemanticStage1TableAttrs<
-        <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+        <Stage1PrivilegeModel<R> as PrivilegeModel>::TableRestrictions,
         <R::PasModel as Stage1PasModel>::TableAttr,
         SemanticVmsa64Stage1TableControls,
     >;
@@ -111,7 +111,7 @@ where
     R::PasModel: Stage2PasContext,
 {
     type Leaf = SemanticStage2LeafAttrs<
-        Stage2Permission,
+        Stage2Permissions,
         <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
         SemanticSmmuV2Stage2LeafControls,
     >;
@@ -124,13 +124,13 @@ where
     R::PasModel: Stage1PasModel,
 {
     type Leaf = SemanticStage1LeafAttrs<
-        Stage1EffectivePermissions,
+        Stage1Permissions,
         <R::PasModel as Stage1PasModel>::LeafAttr,
         SemanticVmsa64Stage1LeafControls,
     >;
 
     type Table = SemanticStage1TableAttrs<
-        <R::PrivilegeModel as PrivilegeModel>::TablePermissionLimits,
+        <Stage1PrivilegeModel<R> as PrivilegeModel>::TableRestrictions,
         <R::PasModel as Stage1PasModel>::TableAttr,
         SemanticVmsa64Stage1TableControls,
     >;
@@ -142,7 +142,7 @@ where
     R::PasModel: Stage2PasContext,
 {
     type Leaf = SemanticStage2LeafAttrs<
-        Stage2Permission,
+        Stage2Permissions,
         <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >;
@@ -156,7 +156,7 @@ where
     R::PasModel: Stage1PasModel,
 {
     type Leaf = SemanticStage1LeafAttrs<
-        Stage1EffectivePermissions,
+        Stage1Permissions,
         <R::PasModel as Stage1PasModel>::LeafAttr,
         SemanticVmsa128Stage1LeafControls,
     >;
@@ -170,7 +170,7 @@ where
     R::PasModel: Stage2PasContext,
 {
     type Leaf = SemanticStage2LeafAttrs<
-        Stage2Permission,
+        Stage2Permissions,
         <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
         SemanticVmsa128Stage2LeafControls,
     >;

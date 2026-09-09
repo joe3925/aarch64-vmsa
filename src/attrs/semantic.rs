@@ -158,7 +158,7 @@ pub struct SemanticStage1LeafAttrs<P, Pas, C> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SemanticStage1TableAttrs<P, Pas, C> {
-    pub permission_limits: P,
+    pub restrictions: P,
     pub pas: Pas,
     pub controls: C,
 }

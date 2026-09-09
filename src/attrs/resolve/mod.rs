@@ -1,6 +1,7 @@
 mod codec;
 mod memory;
 mod pas;
+mod permission_codec;
 mod smmu_v2;
 mod stage1_permissions;
 mod stage2_permissions;
@@ -10,14 +11,20 @@ mod vmsa64;
 pub use codec::AttributeCodec;
 pub(crate) use memory::*;
 pub(crate) use pas::*;
+pub use permission_codec::{
+    PeStage1PermissionCodec, PeStage2PermissionCodec, PermissionCodec, SmmuV2Stage1PermissionCodec,
+    SmmuV2Stage2PermissionCodec, SmmuV3Stage1PermissionCodec, SmmuV3Stage2PermissionCodec,
+    Stage1PermissionCodec, Stage2PermissionCodec,
+};
 pub(crate) use stage1_permissions::*;
 pub use stage1_permissions::{
-    Stage1BasePermissions, Stage1PermissionOverlays, Stage1PermissionRegisters,
+    RawStage1DirectLeafPermissions, Stage1BasePermissions, Stage1DirectEncoding,
+    Stage1PermissionEncoding, Stage1PermissionOverlays, Stage1PermissionRegisters,
     Stage1PermissionSettings,
 };
-pub(crate) use stage2_permissions::*;
 pub use stage2_permissions::{
-    Stage2BasePermissions, Stage2PermissionRegisters, Stage2PermissionSettings,
+    Stage2BasePermissions, Stage2DirectEncoding, Stage2PermissionEncoding,
+    Stage2PermissionRegisters, Stage2PermissionSettings,
 };
 
 use super::{D128Stage1AliasKind, Shareability};

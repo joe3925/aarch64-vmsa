@@ -2,10 +2,12 @@ use crate::address::TranslationGranule;
 use crate::arch::{FeatureRequirements, VmsaFeatures};
 use crate::attrs::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, FixedNonSecurePas,
-    FixedRealmIpaPas, NonSecureIpaContext, PasModel, PrivilegeModel, RealmIpaContext,
-    RealmOrNonSecurePaPas, RootExtendedPas, SecureIpaContext, SecureNonSecureIpaContext,
-    SecureSelectablePas, SmmuPrivilegedStreamPermissions, SmmuStreamPermissions,
-    Stage2PermissionModel,
+    FixedRealmIpaPas, NonSecureIpaContext, PasModel, PeStage1PermissionCodec,
+    PeStage2PermissionCodec, PrivilegeModel, RealmIpaContext, RealmOrNonSecurePaPas,
+    RootExtendedPas, SecureIpaContext, SecureNonSecureIpaContext, SecureSelectablePas,
+    SmmuPrivilegedStreamPermissions, SmmuStreamPermissions, SmmuV2Stage1PermissionCodec,
+    SmmuV2Stage2PermissionCodec, SmmuV3Stage1PermissionCodec, SmmuV3Stage2PermissionCodec,
+    Stage1PermissionCodec, Stage2PermissionCodec, Stage2PermissionModel,
 };
 use crate::config::format::{DescriptorEndian, Vmsa64};
 use crate::config::regime::{
@@ -15,7 +17,7 @@ use crate::config::regime::{
     SecureEl2Stage1,
 };
 use crate::config::regime::{smmu_v2, smmu_v3};
-use crate::config::stage2::Stage2Permissions;
+use crate::config::stage2::StandardStage2PermissionModel;
 use crate::descriptor::{
     DescriptorFormat, DescriptorInterpretation, DescriptorLayout, HasLayout, InterpretsDescriptors,
     PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors,
@@ -63,17 +65,23 @@ pub trait TranslationRegime: private::Sealed + Copy + 'static {
 pub trait PeTranslationRegime: TranslationRegime<DescriptorInterpretation = PeDescriptors> {}
 
 pub trait Stage1Regime: TranslationRegime {
-    type PrivilegeModel: PrivilegeModel;
+    type PermissionCodec: Stage1PermissionCodec<Interpretation = Self::DescriptorInterpretation>;
 
     const SUPPORTS_EL0: bool;
     const HAS_TTBR1: bool;
 }
 
+pub type Stage1PrivilegeModel<R> =
+    <<R as Stage1Regime>::PermissionCodec as Stage1PermissionCodec>::PrivilegeModel;
+
 pub trait Stage2Regime: TranslationRegime {
-    type PermissionModel: Stage2PermissionModel;
+    type PermissionCodec: Stage2PermissionCodec<Interpretation = Self::DescriptorInterpretation>;
 
     const IPA_SPACE: IpaSpace;
 }
+
+pub type Stage2PermissionModelOf<R> =
+    <<R as Stage2Regime>::PermissionCodec as Stage2PermissionCodec>::PermissionModel;
 
 pub trait HasRegimeLayout<R, G>: DescriptorFormat
 where
@@ -170,7 +178,7 @@ macro_rules! stage1_regime {
         }
         impl PeTranslationRegime for $name {}
         impl Stage1Regime for $name {
-            type PrivilegeModel = $permissions;
+            type PermissionCodec = PeStage1PermissionCodec<$permissions>;
             const SUPPORTS_EL0: bool = <$permissions as PrivilegeModel>::SUPPORTS_EL0;
             const HAS_TTBR1: bool = <$permissions as PrivilegeModel>::HAS_TTBR1;
         }
@@ -262,7 +270,7 @@ macro_rules! stage2_regime {
         }
         impl<P: Stage2PermissionModel> PeTranslationRegime for $name<P> {}
         impl<P: Stage2PermissionModel> Stage2Regime for $name<P> {
-            type PermissionModel = P;
+            type PermissionCodec = PeStage2PermissionCodec<P>;
             const IPA_SPACE: IpaSpace = $ipa;
         }
     };
@@ -294,7 +302,7 @@ stage2_regime!(
 );
 
 macro_rules! smmu_stage1_regime {
-    ($name:path, $interpretation:ty, $space:expr, $permissions:ty, $pas:ty) => {
+    ($name:path, $interpretation:ty, $codec:ident, $space:expr, $permissions:ty, $pas:ty) => {
         impl private::Sealed for $name {}
         impl TranslationRegime for $name {
             type Stage = Stage1;
@@ -305,7 +313,7 @@ macro_rules! smmu_stage1_regime {
             const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
         }
         impl Stage1Regime for $name {
-            type PrivilegeModel = $permissions;
+            type PermissionCodec = $codec<$permissions>;
             const SUPPORTS_EL0: bool = <$permissions as PrivilegeModel>::SUPPORTS_EL0;
             const HAS_TTBR1: bool = <$permissions as PrivilegeModel>::HAS_TTBR1;
         }
@@ -332,7 +340,7 @@ macro_rules! smmu_stage2_regime {
             const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
         }
         impl Stage2Regime for $name {
-            type PermissionModel = $permissions;
+            type PermissionCodec = SmmuV2Stage2PermissionCodec<$permissions>;
             const IPA_SPACE: IpaSpace = $ipa;
         }
     };
@@ -341,6 +349,7 @@ macro_rules! smmu_stage2_regime {
 smmu_stage1_regime!(
     smmu_v2::NonSecureStreamStage1,
     SmmuV2Descriptors,
+    SmmuV2Stage1PermissionCodec,
     TranslationSpace::NonSecure,
     SmmuStreamPermissions,
     FixedNonSecurePas
@@ -348,6 +357,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v2::NonSecurePrivilegedStreamStage1,
     SmmuV2Descriptors,
+    SmmuV2Stage1PermissionCodec,
     TranslationSpace::NonSecure,
     SmmuPrivilegedStreamPermissions,
     FixedNonSecurePas
@@ -355,6 +365,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v2::SecureStreamStage1,
     SmmuV2Descriptors,
+    SmmuV2Stage1PermissionCodec,
     TranslationSpace::Secure,
     SmmuStreamPermissions,
     SecureSelectablePas
@@ -362,6 +373,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v2::SecurePrivilegedStreamStage1,
     SmmuV2Descriptors,
+    SmmuV2Stage1PermissionCodec,
     TranslationSpace::Secure,
     SmmuPrivilegedStreamPermissions,
     SecureSelectablePas
@@ -372,7 +384,7 @@ smmu_stage2_regime!(
     NonSecureIpaContext,
     TranslationSpace::NonSecure,
     IpaSpace::NonSecure,
-    Stage2Permissions
+    StandardStage2PermissionModel
 );
 
 impl<E, G> HasRegimeLayout<smmu_v2::NonSecureIpaStage2, G> for Vmsa64<E>
@@ -386,6 +398,7 @@ where
 smmu_stage1_regime!(
     smmu_v3::NonSecureStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::NonSecure,
     SmmuStreamPermissions,
     FixedNonSecurePas
@@ -393,6 +406,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v3::NonSecurePrivilegedStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::NonSecure,
     SmmuPrivilegedStreamPermissions,
     FixedNonSecurePas
@@ -400,6 +414,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v3::SecureStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::Secure,
     SmmuStreamPermissions,
     SecureSelectablePas
@@ -407,6 +422,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v3::SecurePrivilegedStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::Secure,
     SmmuPrivilegedStreamPermissions,
     SecureSelectablePas
@@ -414,6 +430,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v3::RealmStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::Realm,
     SmmuStreamPermissions,
     FixedRealmIpaPas
@@ -421,6 +438,7 @@ smmu_stage1_regime!(
 smmu_stage1_regime!(
     smmu_v3::RealmPrivilegedStreamStage1,
     SmmuV3Descriptors,
+    SmmuV3Stage1PermissionCodec,
     TranslationSpace::Realm,
     SmmuPrivilegedStreamPermissions,
     RealmOrNonSecurePaPas
@@ -438,7 +456,7 @@ macro_rules! smmu_v3_stage2_regime {
             const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
         }
         impl<P: Stage2PermissionModel> Stage2Regime for smmu_v3::$name<P> {
-            type PermissionModel = P;
+            type PermissionCodec = SmmuV3Stage2PermissionCodec<P>;
             const IPA_SPACE: IpaSpace = $ipa;
         }
         impl<F, G, P> HasRegimeLayout<smmu_v3::$name<P>, G> for F

@@ -3,23 +3,22 @@ use crate::attrs::{
     AttrError, DirtyBitManagement, DirtyControl, FourBit, NonSecureIpaContext, RawShareability,
     RawSmmuV2Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, SemanticAttributeTypes, SemanticLeafAttrs,
     SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, SemanticTableAttrs,
-    SemanticVmsa64Stage2TableAttrs, SmmuV2AllocationHint, SoftwareMetadata, Stage2Ap,
-    Stage2ExecuteNever, Stage2Permission, TwoBit,
+    SemanticVmsa64Stage2TableAttrs, SmmuV2AllocationHint, SoftwareMetadata, Stage2ExecuteNever,
+    Stage2Permissions, TwoBit,
 };
 use crate::config::format::{DescriptorEndian, Vmsa64};
 use crate::config::regime::smmu_v2::NonSecureIpaStage2;
 use crate::descriptor::{InterpretsDescriptors, SmmuV2Descriptors, SmmuV2Vmsa64Stage2Layout};
-use crate::regime::{InterpretedLeafFields, InterpretedTableFields};
+use crate::regime::{InterpretedLeafFields, InterpretedTableFields, Stage2Regime};
 use crate::translation::Stage2;
 
-use super::codec::AttributeCodecCell;
+use super::codec::AttributeCodec;
 use super::{
-    HasMemoryCodec, MemoryAttributeCodec, Stage2MemoryConfig, Stage2PasResolver,
-    decode_shareability, decode_stage2_direct_permissions,
+    HasMemoryCodec, MemoryAttributeCodec, PermissionCodec, Stage2DirectEncoding,
+    Stage2MemoryConfig, Stage2PasResolver, decode_shareability,
 };
 
-impl<E: DescriptorEndian, G, Cfg> AttributeCodecCell<Vmsa64<E>, NonSecureIpaStage2, G, Cfg>
-    for Stage2
+impl<E: DescriptorEndian, G, Cfg> AttributeCodec<Vmsa64<E>, NonSecureIpaStage2, G, Cfg> for Stage2
 where
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig,
@@ -28,7 +27,7 @@ where
     Vmsa64<E>: SemanticAttributeTypes<
             Stage2,
             NonSecureIpaStage2,
-            Leaf = SemanticStage2LeafAttrs<Stage2Permission, (), SemanticSmmuV2Stage2LeafControls>,
+            Leaf = SemanticStage2LeafAttrs<Stage2Permissions, (), SemanticSmmuV2Stage2LeafControls>,
             Table = SemanticVmsa64Stage2TableAttrs,
         >,
 {
@@ -37,7 +36,11 @@ where
         _: Level,
         attrs: SemanticLeafAttrs<Vmsa64<E>, NonSecureIpaStage2>,
     ) -> Result<InterpretedLeafFields<Vmsa64<E>, NonSecureIpaStage2, G>, AttrError> {
-        let permissions = encode_permissions(attrs.permissions)?;
+        let permissions =
+            <<NonSecureIpaStage2 as Stage2Regime>::PermissionCodec as PermissionCodec<
+                Cfg,
+                Stage2DirectEncoding,
+            >>::encode(config, attrs.permissions)?;
         let dirty_bit_modifier = match attrs.controls.dirty {
             DirtyControl::Direct(DirtyBitManagement::SoftwareManaged) => false,
             DirtyControl::Direct(DirtyBitManagement::HardwareManaged) => true,
@@ -51,12 +54,12 @@ where
         )?;
         Ok(RawSmmuV2Stage2LeafAttrs {
             mem_attr: <Vmsa64<E> as HasMemoryCodec<Stage2>>::Codec::encode(config, attrs.memory)?,
-            permissions: permissions.0,
+            permissions: permissions.access,
             shareability: RawShareability::from_bits(attrs.controls.shareability as u8)?,
             access_flag: attrs.controls.access_flag,
             dirty_bit_modifier,
             contiguous: attrs.controls.contiguous,
-            execute_never: permissions.1,
+            execute_never: permissions.execute_never.bits() == 0b10,
             software,
             read_allocate: encode_allocation(attrs.controls.read_allocate)?,
             write_allocate: encode_allocation(attrs.controls.write_allocate)?,
@@ -87,11 +90,21 @@ where
         )?;
         Ok(SemanticStage2LeafAttrs {
             memory: <Vmsa64<E> as HasMemoryCodec<Stage2>>::Codec::decode(config, raw.mem_attr)?,
-            permissions: decode_stage2_direct_permissions(
-                raw.permissions,
-                Stage2ExecuteNever::from_bits(if raw.execute_never { 0b10 } else { 0b00 })?,
-                false,
-            )?,
+            permissions:
+                <<NonSecureIpaStage2 as Stage2Regime>::PermissionCodec as PermissionCodec<
+                    Cfg,
+                    Stage2DirectEncoding,
+                >>::decode(
+                    config,
+                    Stage2DirectEncoding {
+                        access: raw.permissions,
+                        execute_never: Stage2ExecuteNever::from_bits(if raw.execute_never {
+                            0b10
+                        } else {
+                            0b00
+                        })?,
+                    },
+                )?,
             output_address_space: (),
             controls: SemanticSmmuV2Stage2LeafControls {
                 shareability: decode_shareability(raw.shareability)?,
@@ -119,19 +132,6 @@ where
             software: SoftwareMetadata::new(raw.software.bits().into()),
         })
     }
-}
-
-fn encode_permissions(wanted: Stage2Permission) -> Result<(Stage2Ap, bool), AttrError> {
-    for ap in 0..=0b11 {
-        for xn in [false, true] {
-            let ap = Stage2Ap::from_bits(ap)?;
-            let encoded_xn = Stage2ExecuteNever::from_bits(if xn { 0b10 } else { 0b00 })?;
-            if decode_stage2_direct_permissions(ap, encoded_xn, false) == Ok(wanted) {
-                return Ok((ap, xn));
-            }
-        }
-    }
-    Err(AttrError::UnencodablePermissions)
 }
 
 fn encode_allocation(value: SmmuV2AllocationHint) -> Result<TwoBit, AttrError> {

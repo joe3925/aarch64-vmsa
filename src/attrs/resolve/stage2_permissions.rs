@@ -1,13 +1,21 @@
-use crate::attrs::{
-    AttrError, DataAccess, FourBit, MostlyReadOnly, PermissionIndices, Stage2Ap,
-    Stage2ExecuteNever, Stage2Permission,
+use super::{
+    PeStage2PermissionCodec, PermissionCodec, PermissionIndex, SmmuV2Stage2PermissionCodec,
+    SmmuV3Stage2PermissionCodec, Stage2PermissionConfig,
 };
-
-use super::Stage2PermissionConfig;
+use crate::attrs::{
+    AttrError, DataRights, ExecuteRights, FourBit, PermissionIndices, Stage2Ap, Stage2ExecuteNever,
+    Stage2PermissionModel, Stage2Permissions, TopLevelRequirements,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stage2PermissionRegisters {
     pub s2pir_el2: u64,
+}
+
+impl Stage2PermissionRegisters {
+    fn entry(self, index: u8) -> Stage2IndirectEntry {
+        Stage2IndirectEntry(((self.s2pir_el2 >> (u32::from(index) * 4)) & 0xf) as u8)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,158 +37,147 @@ impl Stage2PermissionSettings {
             s2por_el1: None,
         }
     }
+
+    fn overlay_entry(self, index: u8) -> Option<Stage2IndirectEntry> {
+        self.s2por_el1
+            .map(|register| Stage2IndirectEntry(((register >> (u32::from(index) * 4)) & 0xf) as u8))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Stage2PermissionEntry {
-    Permission(Stage2Permission),
-    ReservedTreatedAsNoAccess,
+struct Stage2IndirectEntry(u8);
+
+impl Stage2IndirectEntry {
+    const fn decode(self) -> Stage2Permissions {
+        let execute =
+            ExecuteRights::from_privileged_unprivileged(self.0 & 0b0010 != 0, self.0 & 0b0001 != 0);
+        match self.0 {
+            0b0000 | 0b0001 | 0b0101 => Stage2Permissions::no_access(),
+            0b0010 => Stage2Permissions::mostly_read_only(TopLevelRequirements::NONE),
+            0b0011 => Stage2Permissions::mostly_read_only(TopLevelRequirements::TOP_LEVEL1),
+            0b0100 => Stage2Permissions::special_write_only(),
+            0b0110 => Stage2Permissions::mostly_read_only(TopLevelRequirements::TOP_LEVEL0),
+            0b0111 => Stage2Permissions::mostly_read_only(TopLevelRequirements::BOTH),
+            0b1000..=0b1011 => Stage2Permissions::direct(DataRights::Read, execute),
+            _ => Stage2Permissions::direct(DataRights::ReadWrite, execute),
+        }
+    }
 }
 
-use MostlyReadOnly::*;
-use Stage2Permission::*;
-use Stage2PermissionEntry::{Permission as P, ReservedTreatedAsNoAccess as R};
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Stage2DirectEncoding {
+    pub access: Stage2Ap,
+    pub execute_never: Stage2ExecuteNever,
+}
 
-pub const STAGE2_BASE_DECODE: [Stage2PermissionEntry; 16] = [
-    P(NoAccess),
-    R,
-    P(MostlyReadOnly(Unqualified)),
-    P(MostlyReadOnly(TopLevel1)),
-    P(WriteOnly {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    R,
-    P(MostlyReadOnly(TopLevel0)),
-    P(MostlyReadOnly(TopLevels0And1)),
-    P(ReadOnly {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    P(ReadOnly {
-        privileged_execute: false,
-        unprivileged_execute: true,
-    }),
-    P(ReadOnly {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    }),
-    P(ReadOnly {
-        privileged_execute: true,
-        unprivileged_execute: true,
-    }),
-    P(ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    P(ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: true,
-    }),
-    P(ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    }),
-    P(ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: true,
-    }),
-];
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stage2PermissionEncoding<I = FourBit> {
+    Direct(Stage2DirectEncoding),
+    Indirect(PermissionIndices<I>),
+}
 
-pub const STAGE2_OVERLAY_DECODE: [Stage2PermissionEntry; 16] = [
-    P(NoAccess),
-    R,
-    P(MostlyReadOnly(Unqualified)),
-    P(MostlyReadOnly(TopLevel1)),
-    P(WriteOnly {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    R,
-    P(MostlyReadOnly(TopLevel0)),
-    P(MostlyReadOnly(TopLevels0And1)),
-    P(ReadOnly {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    P(ReadOnly {
-        privileged_execute: false,
-        unprivileged_execute: true,
-    }),
-    P(ReadOnly {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    }),
-    P(ReadOnly {
-        privileged_execute: true,
-        unprivileged_execute: true,
-    }),
-    P(ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: false,
-    }),
-    P(ReadWrite {
-        privileged_execute: false,
-        unprivileged_execute: true,
-    }),
-    P(ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: false,
-    }),
-    P(ReadWrite {
-        privileged_execute: true,
-        unprivileged_execute: true,
-    }),
-];
+impl Stage2DirectEncoding {
+    pub fn decode(self, xnx: bool) -> Result<Stage2Permissions, AttrError> {
+        let data = match self.access.bits() {
+            0b00 => DataRights::None,
+            0b01 => DataRights::Read,
+            0b10 => DataRights::Write,
+            0b11 => DataRights::ReadWrite,
+            bits => return Err(AttrError::InvalidStage2Permission(bits)),
+        };
+        let execute = if xnx {
+            match self.execute_never.bits() {
+                0b00 => ExecuteRights::Both,
+                0b01 => ExecuteRights::Unprivileged,
+                0b10 => ExecuteRights::Neither,
+                0b11 => ExecuteRights::Privileged,
+                _ => return Err(AttrError::InvalidStage2ExecuteNever),
+            }
+        } else {
+            match self.execute_never.bits() {
+                0b00 => ExecuteRights::Both,
+                0b10 => ExecuteRights::Neither,
+                _ => return Err(AttrError::InvalidStage2ExecuteNever),
+            }
+        };
+        Ok(Stage2Permissions::direct(data, execute))
+    }
 
-pub fn decode_stage2_direct_permissions(
-    access: Stage2Ap,
-    execute_never: Stage2ExecuteNever,
-    xnx: bool,
-) -> Result<Stage2Permission, AttrError> {
-    let data = match access.bits() {
-        0b00 => DataAccess::None,
-        0b01 => DataAccess::ReadOnly,
-        0b10 => DataAccess::None,
-        0b11 => DataAccess::ReadWrite,
-        bits => return Err(AttrError::InvalidStage2Permission(bits)),
-    };
-    let (privileged_execute, unprivileged_execute) = if xnx {
-        match execute_never.bits() {
-            0b00 => (true, true),
-            0b01 => (false, true),
-            0b10 => (false, false),
-            0b11 => (true, false),
-            _ => return Err(AttrError::InvalidStage2ExecuteNever),
+    pub fn encode(wanted: Stage2Permissions, xnx: bool) -> Result<Self, AttrError> {
+        for ap in 0..4 {
+            for xn in 0..4 {
+                let candidate = Self {
+                    access: Stage2Ap::from_bits(ap)?,
+                    execute_never: Stage2ExecuteNever::from_bits(xn)?,
+                };
+                if candidate.decode(xnx) == Ok(wanted) {
+                    return Ok(candidate);
+                }
+            }
         }
-    } else {
-        match execute_never.bits() {
-            0b00 => (true, true),
-            0b10 => (false, false),
-            _ => return Err(AttrError::InvalidStage2ExecuteNever),
+        Err(AttrError::UnencodablePermissions)
+    }
+}
+
+macro_rules! stage2_permission_codec {
+    ($codec:ident) => {
+        impl<C, I, P> PermissionCodec<C, Stage2PermissionEncoding<I>> for $codec<P>
+        where
+            C: Stage2PermissionConfig,
+            I: PermissionIndex,
+            P: Stage2PermissionModel,
+        {
+            type Permissions = Stage2Permissions;
+
+            fn encode(
+                config: &C,
+                wanted: Self::Permissions,
+            ) -> Result<Stage2PermissionEncoding<I>, AttrError> {
+                match config.stage2_permissions().base {
+                    Stage2BasePermissions::Direct => Ok(Stage2PermissionEncoding::Direct(
+                        Stage2DirectEncoding::encode(wanted, P::XNX)?,
+                    )),
+                    Stage2BasePermissions::Indirect(_) => Ok(Stage2PermissionEncoding::Indirect(
+                        Stage2PermissionResolver::<C, I>::new(config).resolve(wanted)?,
+                    )),
+                }
+            }
+
+            fn decode(
+                config: &C,
+                encoding: Stage2PermissionEncoding<I>,
+            ) -> Result<Self::Permissions, AttrError> {
+                match (config.stage2_permissions().base, encoding) {
+                    (Stage2BasePermissions::Direct, Stage2PermissionEncoding::Direct(raw)) => {
+                        raw.decode(P::XNX)
+                    }
+                    (
+                        Stage2BasePermissions::Indirect(_),
+                        Stage2PermissionEncoding::Indirect(indices),
+                    ) => Stage2PermissionResolver::<C, I>::new(config).decode(indices),
+                    _ => Err(AttrError::PermissionModeMismatch),
+                }
+            }
         }
     };
-    Ok(match data {
-        DataAccess::None if access.bits() == 0b10 => Stage2Permission::WriteOnly {
-            privileged_execute,
-            unprivileged_execute,
-        },
-        DataAccess::None if !privileged_execute && !unprivileged_execute => {
-            Stage2Permission::NoAccess
-        }
-        DataAccess::None => Stage2Permission::ExecuteOnly {
-            privileged_execute,
-            unprivileged_execute,
-        },
-        DataAccess::ReadOnly => Stage2Permission::ReadOnly {
-            privileged_execute,
-            unprivileged_execute,
-        },
-        DataAccess::ReadWrite => Stage2Permission::ReadWrite {
-            privileged_execute,
-            unprivileged_execute,
-        },
-    })
+}
+
+stage2_permission_codec!(PeStage2PermissionCodec);
+stage2_permission_codec!(SmmuV3Stage2PermissionCodec);
+
+impl<C, P> PermissionCodec<C, Stage2DirectEncoding> for SmmuV2Stage2PermissionCodec<P>
+where
+    P: Stage2PermissionModel,
+{
+    type Permissions = Stage2Permissions;
+
+    fn encode(_: &C, wanted: Self::Permissions) -> Result<Stage2DirectEncoding, AttrError> {
+        Stage2DirectEncoding::encode(wanted, false)
+    }
+
+    fn decode(_: &C, encoding: Stage2DirectEncoding) -> Result<Self::Permissions, AttrError> {
+        encoding.decode(false)
+    }
 }
 
 pub struct Stage2PermissionResolver<'a, C: ?Sized, I = FourBit> {
@@ -188,7 +185,7 @@ pub struct Stage2PermissionResolver<'a, C: ?Sized, I = FourBit> {
     index: core::marker::PhantomData<I>,
 }
 
-impl<'a, C: Stage2PermissionConfig + ?Sized, I: super::PermissionIndex>
+impl<'a, C: Stage2PermissionConfig + ?Sized, I: PermissionIndex>
     Stage2PermissionResolver<'a, C, I>
 {
     pub const fn new(config: &'a C) -> Self {
@@ -198,23 +195,10 @@ impl<'a, C: Stage2PermissionConfig + ?Sized, I: super::PermissionIndex>
         }
     }
 
-    pub fn resolve(&self, wanted: Stage2Permission) -> Result<PermissionIndices<I>, AttrError> {
-        let settings = self.config.stage2_permissions();
-        let registers = match settings.base {
-            Stage2BasePermissions::Indirect(registers) => registers,
-            Stage2BasePermissions::Direct => {
-                return Err(AttrError::PermissionIndirectionUnavailable);
-            }
-        };
-        let po_count = if settings.s2por_el1.is_some() {
-            I::COUNT
-        } else {
-            1
-        };
-
+    pub fn resolve(&self, wanted: Stage2Permissions) -> Result<PermissionIndices<I>, AttrError> {
         for pi in 0..16 {
-            for po in 0..po_count {
-                if decode_effective(registers, settings.s2por_el1, pi, po) == wanted {
+            for po in 0..self.overlay_count() {
+                if self.decode_indices(pi, po)? == wanted {
                     return Ok(PermissionIndices {
                         pi: FourBit::new(pi)?,
                         po: I::new(po)?,
@@ -225,157 +209,31 @@ impl<'a, C: Stage2PermissionConfig + ?Sized, I: super::PermissionIndex>
         Err(AttrError::PermissionCombinationNotConfigured)
     }
 
-    pub fn decode(&self, indices: PermissionIndices<I>) -> Result<Stage2Permission, AttrError> {
+    pub fn decode(&self, indices: PermissionIndices<I>) -> Result<Stage2Permissions, AttrError> {
+        self.decode_indices(indices.pi.bits(), indices.po.bits())
+    }
+
+    fn settings(&self) -> Result<(Stage2PermissionSettings, Stage2PermissionRegisters), AttrError> {
         let settings = self.config.stage2_permissions();
-        let registers = match settings.base {
-            Stage2BasePermissions::Indirect(registers) => registers,
-            Stage2BasePermissions::Direct => {
-                return Err(AttrError::PermissionIndirectionUnavailable);
-            }
-        };
-        Ok(decode_effective(
-            registers,
-            settings.s2por_el1,
-            indices.pi.bits(),
-            indices.po.bits(),
-        ))
-    }
-}
-
-fn decode_effective(
-    registers: Stage2PermissionRegisters,
-    overlay: Option<u64>,
-    pi: u8,
-    po: u8,
-) -> Stage2Permission {
-    let base = decoded(STAGE2_BASE_DECODE[entry(registers.s2pir_el2, pi) as usize]);
-    match overlay {
-        Some(overlay) => combine_stage2_permissions(
-            base,
-            decoded(STAGE2_OVERLAY_DECODE[entry(overlay, po) as usize]),
-        ),
-        None => base,
-    }
-}
-
-const fn decoded(entry: Stage2PermissionEntry) -> Stage2Permission {
-    match entry {
-        P(value) => value,
-        R => NoAccess,
-    }
-}
-
-pub const fn combine_stage2_permissions(
-    base: Stage2Permission,
-    overlay: Stage2Permission,
-) -> Stage2Permission {
-    match (base, overlay) {
-        (MostlyReadOnly(a), MostlyReadOnly(b)) => MostlyReadOnly(combine_mro(a, b)),
-        (WriteOnly { .. }, WriteOnly { .. }) => WriteOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
-        (WriteOnly { .. }, MostlyReadOnly(_)) | (MostlyReadOnly(_), WriteOnly { .. }) => NoAccess,
-
-        (special @ MostlyReadOnly(_), general) | (general, special @ MostlyReadOnly(_)) => {
-            combine_mro_with_general(special, general)
-        }
-        (WriteOnly { .. }, general) | (general, WriteOnly { .. }) => {
-            combine_wo_with_general(general)
-        }
-
-        (general_a, general_b) => {
-            let encoding = encode_general(general_a) & encode_general(general_b);
-            decoded(STAGE2_BASE_DECODE[encoding as usize])
+        match settings.base {
+            Stage2BasePermissions::Indirect(registers) => Ok((settings, registers)),
+            Stage2BasePermissions::Direct => Err(AttrError::PermissionIndirectionUnavailable),
         }
     }
-}
 
-const fn combine_mro(a: MostlyReadOnly, b: MostlyReadOnly) -> MostlyReadOnly {
-    match mro_mask(a) | mro_mask(b) {
-        0b00 => Unqualified,
-        0b01 => TopLevel0,
-        0b10 => TopLevel1,
-        _ => TopLevels0And1,
+    fn overlay_count(&self) -> u8 {
+        if self.config.stage2_permissions().s2por_el1.is_some() {
+            I::COUNT
+        } else {
+            1
+        }
     }
-}
 
-const fn mro_mask(value: MostlyReadOnly) -> u8 {
-    match value {
-        Unqualified => 0b00,
-        TopLevel0 => 0b01,
-        TopLevel1 => 0b10,
-        TopLevels0And1 => 0b11,
-    }
-}
-
-const fn combine_mro_with_general(
-    special: Stage2Permission,
-    general: Stage2Permission,
-) -> Stage2Permission {
-    match general {
-        NoAccess => NoAccess,
-        ReadOnly { .. } => ReadOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
-        ReadWrite { .. } => special,
-        _ => NoAccess,
-    }
-}
-
-const fn combine_wo_with_general(general: Stage2Permission) -> Stage2Permission {
-    match general {
-        ReadWrite { .. } => WriteOnly {
-            privileged_execute: false,
-            unprivileged_execute: false,
-        },
-        NoAccess | ReadOnly { .. } => NoAccess,
-        _ => NoAccess,
-    }
-}
-
-const fn encode_general(value: Stage2Permission) -> u8 {
-    match value {
-        NoAccess => 0,
-        ExecuteOnly {
-            privileged_execute,
-            unprivileged_execute,
-        } => (privileged_execute as u8) << 1 | unprivileged_execute as u8,
-        ReadOnly {
-            privileged_execute,
-            unprivileged_execute,
-        } => 0b1000 | (privileged_execute as u8) << 1 | unprivileged_execute as u8,
-        ReadWrite {
-            privileged_execute,
-            unprivileged_execute,
-        } => 0b1100 | (privileged_execute as u8) << 1 | unprivileged_execute as u8,
-        WriteOnly { .. } | MostlyReadOnly(_) => 0,
-    }
-}
-
-fn entry(register: u64, index: u8) -> u8 {
-    ((register >> (u32::from(index) * 4)) & 0xf) as u8
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn direct_s2ap_write_only_is_preserved() {
-        let decoded = decode_stage2_direct_permissions(
-            Stage2Ap::from_bits(0b10).unwrap(),
-            Stage2ExecuteNever::from_bits(0b10).unwrap(),
-            false,
-        )
-        .unwrap();
-        assert_eq!(
-            decoded,
-            Stage2Permission::WriteOnly {
-                privileged_execute: false,
-                unprivileged_execute: false,
-            }
-        );
+    fn decode_indices(&self, pi: u8, po: u8) -> Result<Stage2Permissions, AttrError> {
+        let (settings, registers) = self.settings()?;
+        let base = registers.entry(pi).decode();
+        Ok(settings
+            .overlay_entry(po)
+            .map_or(base, |overlay| base.intersection(overlay.decode())))
     }
 }

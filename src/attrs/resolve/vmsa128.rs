@@ -6,29 +6,32 @@ use crate::attrs::{
     RawVmsa128Stage2TableAttrs, SemanticLeafAttrs, SemanticStage1LeafAttrs,
     SemanticStage2LeafAttrs, SemanticTableAttrs, SemanticVmsa128Stage1LeafControls,
     SemanticVmsa128Stage1TableAttrs, SemanticVmsa128Stage2LeafControls,
-    SemanticVmsa128Stage2TableAttrs, SoftwareMetadata, Stage1EffectivePermissions, Stage1PasModel,
-    Stage2PasContext, Stage2Permission, TenBit,
+    SemanticVmsa128Stage2TableAttrs, SoftwareMetadata, Stage1PasModel, Stage1Permissions,
+    Stage2PasContext, Stage2Permissions, TenBit,
 };
 use crate::config::format::{DescriptorEndian, Vmsa128};
 use crate::descriptor::{DescriptorInterpretation, HasLayout, InterpretsDescriptors};
 use crate::regime::{
-    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, Stage1Regime, Stage2Regime,
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, Stage1PrivilegeModel,
+    Stage1Regime, Stage2Regime,
 };
 use crate::translation::{Stage1, Stage2};
 
-use super::codec::AttributeCodecCell;
+use super::codec::AttributeCodec;
 use super::{
-    HasMemoryCodec, MemoryAttributeCodec, RawStage1LeafPas, Stage1MemoryConfig, Stage1PasResolver,
-    Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PasResolver,
-    Stage2PermissionConfig, Stage2PermissionResolver, decode_shareability,
+    HasMemoryCodec, MemoryAttributeCodec, PermissionCodec, RawStage1LeafPas, Stage1MemoryConfig,
+    Stage1PasResolver, Stage1PermissionConfig, Stage1PermissionEncoding, Stage2MemoryConfig,
+    Stage2PasResolver, Stage2PermissionConfig, Stage2PermissionEncoding, decode_shareability,
     decode_smmuv3_stage1_memory, encode_smmuv3_stage1_memory,
 };
 
-impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa128<E>, R, G, Cfg> for Stage1
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa128<E>, R, G, Cfg> for Stage1
 where
     R: Stage1Regime<Stage = Stage1>,
     G: TranslationGranule,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig + D128AliasConfig,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage1PermissionEncoding, Permissions = Stage1Permissions>,
     R::PasModel: Stage1PasResolver,
     R::DescriptorInterpretation: InterpretsDescriptors<
             Vmsa128<E>,
@@ -41,7 +44,7 @@ where
             Stage1,
             R,
             Leaf = SemanticStage1LeafAttrs<
-                Stage1EffectivePermissions,
+                Stage1Permissions,
                 <R::PasModel as Stage1PasModel>::LeafAttr,
                 SemanticVmsa128Stage1LeafControls,
             >,
@@ -63,7 +66,7 @@ where
                 return Err(AttrError::InvalidD128Alias);
             }
             pas.nse
-        } else if R::PrivilegeModel::SUPPORTS_EL0 {
+        } else if Stage1PrivilegeModel::<R>::SUPPORTS_EL0 {
             if config.d128_stage1_alias_kind() != D128Stage1AliasKind::NonGlobal || pas.nse {
                 return Err(AttrError::InvalidD128Alias);
             }
@@ -78,9 +81,10 @@ where
         } else {
             <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::encode(config, attrs.memory)?
         };
-        let permissions =
-            Stage1PermissionResolver::<_, _, R::DescriptorInterpretation>::new(config)
-                .resolve(attrs.permissions)?;
+        let permissions = match R::PermissionCodec::encode(config, attrs.permissions)? {
+            Stage1PermissionEncoding::Indirect(indices) => indices,
+            Stage1PermissionEncoding::Direct(_) => return Err(AttrError::PermissionModeMismatch),
+        };
         let shareability = RawShareability::from_bits(attrs.controls.shareability as u8)?;
         let software = software_ten(attrs.controls.software)?;
 
@@ -129,7 +133,7 @@ where
                 return Err(AttrError::InvalidD128Alias);
             }
             (raw.alias_bit, true)
-        } else if R::PrivilegeModel::SUPPORTS_EL0 {
+        } else if Stage1PrivilegeModel::<R>::SUPPORTS_EL0 {
             if config.d128_stage1_alias_kind() != D128Stage1AliasKind::NonGlobal {
                 return Err(AttrError::InvalidD128Alias);
             }
@@ -146,8 +150,10 @@ where
             } else {
                 <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::decode(config, raw.attr_index)?
             },
-            permissions: Stage1PermissionResolver::<_, _, R::DescriptorInterpretation>::new(config)
-                .decode(raw.permissions)?,
+            permissions: R::PermissionCodec::decode(
+                config,
+                Stage1PermissionEncoding::Indirect(raw.permissions),
+            )?,
             pas: R::PasModel::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
             controls: SemanticVmsa128Stage1LeafControls {
                 bbm_nt: raw.bbm_nt,
@@ -179,11 +185,13 @@ where
     }
 }
 
-impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa128<E>, R, G, Cfg> for Stage2
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa128<E>, R, G, Cfg> for Stage2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage2PermissionEncoding, Permissions = Stage2Permissions>,
     R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa128<E>, Cfg, Software = TenBit>,
     R::DescriptorInterpretation: InterpretsDescriptors<
             Vmsa128<E>,
@@ -196,7 +204,7 @@ where
             Stage2,
             R,
             Leaf = SemanticStage2LeafAttrs<
-                Stage2Permission,
+                Stage2Permissions,
                 <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
                 SemanticVmsa128Stage2LeafControls,
             >,
@@ -212,7 +220,10 @@ where
         let ns = R::PasModel::resolve(config, attrs.output_address_space, &mut software)?;
         require_nt(level, attrs.controls.bbm_nt)?;
         let mem_attr = <Vmsa128<E> as HasMemoryCodec<Stage2>>::Codec::encode(config, attrs.memory)?;
-        let permissions = Stage2PermissionResolver::new(config).resolve(attrs.permissions)?;
+        let permissions = match R::PermissionCodec::encode(config, attrs.permissions)? {
+            Stage2PermissionEncoding::Indirect(indices) => indices,
+            Stage2PermissionEncoding::Direct(_) => return Err(AttrError::PermissionModeMismatch),
+        };
         let shareability = RawShareability::from_bits(attrs.controls.shareability as u8)?;
         Ok(RawVmsa128Stage2LeafAttrs {
             mem_attr,
@@ -251,7 +262,10 @@ where
         let output_address_space = R::PasModel::decode(config, raw.ns, &mut software)?;
         Ok(SemanticStage2LeafAttrs {
             memory: <Vmsa128<E> as HasMemoryCodec<Stage2>>::Codec::decode(config, raw.mem_attr)?,
-            permissions: Stage2PermissionResolver::new(config).decode(raw.permissions)?,
+            permissions: R::PermissionCodec::decode(
+                config,
+                Stage2PermissionEncoding::Indirect(raw.permissions),
+            )?,
             output_address_space,
             controls: SemanticVmsa128Stage2LeafControls {
                 bbm_nt: raw.bbm_nt,
