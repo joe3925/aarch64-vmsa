@@ -50,6 +50,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
                 .expect("masked S2AP is two bits"),
             shareability: RawShareability::from_masked(bits::SHAREABILITY.extract(raw)),
             access_flag: bits::ACCESS_FLAG.extract(raw) != 0,
+            dirty_bit_modifier: bits::DBM.extract(raw) != 0,
             contiguous: bits::CONTIGUOUS.extract(raw) != 0,
             execute_never: bits::XN.extract(raw) != 0,
             software: FourBit::from_masked(bits::SOFTWARE.extract(raw)),
@@ -87,6 +88,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
         raw = bits::S2AP.insert(raw, f.permissions.bits().into());
         raw = bits::SHAREABILITY.insert(raw, f.shareability.bits().into());
         raw = bits::ACCESS_FLAG.insert(raw, f.access_flag.into());
+        raw = bits::DBM.insert(raw, f.dirty_bit_modifier.into());
         raw = bits::CONTIGUOUS.insert(raw, f.contiguous.into());
         raw = bits::XN.insert(raw, f.execute_never.into());
         raw = bits::SOFTWARE.insert(raw, f.software.bits().into());

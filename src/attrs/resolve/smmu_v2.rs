@@ -1,7 +1,7 @@
 use crate::address::{Level, TranslationGranule};
 use crate::attrs::{
-    AttrError, FourBit, NonSecureIpaContext, RawShareability, RawSmmuV2Stage2LeafAttrs,
-    RawVmsa64Stage2TableAttrs, SemanticAttributeTypes, SemanticLeafAttrs,
+    AttrError, DirtyBitManagement, DirtyControl, FourBit, NonSecureIpaContext, RawShareability,
+    RawSmmuV2Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, SemanticAttributeTypes, SemanticLeafAttrs,
     SemanticSmmuV2Stage2LeafControls, SemanticStage2LeafAttrs, SemanticTableAttrs,
     SemanticVmsa64Stage2TableAttrs, SmmuV2AllocationHint, SoftwareMetadata, Stage2Ap,
     Stage2ExecuteNever, Stage2Permission, TwoBit,
@@ -38,6 +38,11 @@ where
         attrs: SemanticLeafAttrs<Vmsa64<E>, NonSecureIpaStage2>,
     ) -> Result<InterpretedLeafFields<Vmsa64<E>, NonSecureIpaStage2, G>, AttrError> {
         let permissions = encode_permissions(attrs.permissions)?;
+        let dirty_bit_modifier = match attrs.controls.dirty {
+            DirtyControl::Direct(DirtyBitManagement::SoftwareManaged) => false,
+            DirtyControl::Direct(DirtyBitManagement::HardwareManaged) => true,
+            DirtyControl::Indirect(_) => return Err(AttrError::PermissionModeMismatch),
+        };
         let mut software = FourBit::new(attrs.controls.software.value() as u8)?;
         let _ = <NonSecureIpaContext as Stage2PasResolver<Vmsa64<E>, Cfg>>::resolve(
             config,
@@ -49,6 +54,7 @@ where
             permissions: permissions.0,
             shareability: RawShareability::from_bits(attrs.controls.shareability as u8)?,
             access_flag: attrs.controls.access_flag,
+            dirty_bit_modifier,
             contiguous: attrs.controls.contiguous,
             execute_never: permissions.1,
             software,
@@ -90,6 +96,11 @@ where
             controls: SemanticSmmuV2Stage2LeafControls {
                 shareability: decode_shareability(raw.shareability)?,
                 access_flag: raw.access_flag,
+                dirty: DirtyControl::Direct(if raw.dirty_bit_modifier {
+                    DirtyBitManagement::HardwareManaged
+                } else {
+                    DirtyBitManagement::SoftwareManaged
+                }),
                 contiguous: raw.contiguous,
                 read_allocate: decode_allocation(raw.read_allocate)?,
                 write_allocate: decode_allocation(raw.write_allocate)?,

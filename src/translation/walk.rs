@@ -73,10 +73,10 @@ impl WalkInputAddr {
         }
 
         let mask = (1u64 << addr_bits) - 1;
-        let sign_bit = 1u64 << (addr_bits - 1);
         let upper = raw & !mask;
-        let expected_upper = if raw & sign_bit == 0 { 0 } else { !mask };
-        if upper != expected_upper {
+        // The lower and upper VA ranges are independent. Bit addr_bits-1 is
+        // part of the address within either range; it is not a sign bit.
+        if upper != 0 && upper != !mask {
             return Err(CanonicalWalkInputAddrError::NotCanonical {
                 addr: raw,
                 addr_bits,

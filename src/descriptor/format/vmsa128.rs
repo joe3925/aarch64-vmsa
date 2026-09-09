@@ -82,6 +82,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
         f: Self::LeafFields,
     ) -> Result<u128, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         if f.bbm_nt && leaf_skl(level) == 0 {
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
@@ -173,7 +174,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
             dirty: Stage2Dirty::new(b::D128_STAGE2_DIRTY.extract(raw) != 0),
             shareability: RawShareability::from_masked(b::D128_SHAREABILITY.extract(raw)),
             access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
-            force_no_execute: b::D128_LEAF_ALIAS.extract(raw) != 0,
+            force_no_xs: b::D128_LEAF_ALIAS.extract(raw) != 0,
             contiguous: b::D128_CONTIGUOUS.extract(raw) != 0,
             assured_only: b::D128_PROTECTED_OR_ASSURED_ONLY.extract(raw) != 0,
             permissions: PermissionIndices {
@@ -197,6 +198,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
         f: Self::LeafFields,
     ) -> Result<u128, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         if f.bbm_nt && leaf_skl(level) == 0 {
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
@@ -208,7 +210,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
             f.bbm_nt,
             f.shareability,
             f.access_flag,
-            f.force_no_execute,
+            f.force_no_xs,
             level,
             f.contiguous,
             f.assured_only,
@@ -305,6 +307,22 @@ fn pack_common_table(
 pub(super) fn supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
     let skip = Level::L3.as_i8() - level.as_i8();
     (0..=3).contains(&skip) && skl_supported(granule, skip as u8)
+}
+
+fn require_contiguous<G: TranslationGranule>(
+    level: Level,
+    contiguous: bool,
+) -> Result<(), DescriptorError> {
+    if contiguous
+        && matches!(
+            (G::KIND, level.as_i8()),
+            (GranuleKind::Size4KiB, 0) | (GranuleKind::Size64KiB, 1)
+        )
+    {
+        Err(DescriptorError::ReservedFieldSet { bit: 111 })
+    } else {
+        Ok(())
+    }
 }
 
 pub(crate) fn skl_supported(granule: GranuleKind, skl: u8) -> bool {

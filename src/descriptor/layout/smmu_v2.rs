@@ -15,6 +15,7 @@ descriptor_layout! {
         pub S2AP: Field<6, 2> in STAGE2_LEAF;
         pub SHAREABILITY: Field<8, 2> in STAGE2_LEAF;
         pub ACCESS_FLAG: Field<10, 1> in STAGE2_LEAF | STAGE2_TABLE;
+        pub DBM: Field<51, 1> in STAGE2_LEAF;
         pub OUTPUT_ADDRESS: Field<12, 36> in ALL;
         pub CONTIGUOUS: Field<52, 1> in STAGE2_LEAF;
         pub XN: Field<54, 1> in STAGE2_LEAF;

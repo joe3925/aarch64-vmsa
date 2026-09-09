@@ -46,7 +46,10 @@ pub const STAGE2_BASE_DECODE: [Stage2PermissionEntry; 16] = [
     R,
     P(MostlyReadOnly(Unqualified)),
     P(MostlyReadOnly(TopLevel1)),
-    P(WriteOnly),
+    P(WriteOnly {
+        privileged_execute: false,
+        unprivileged_execute: false,
+    }),
     R,
     P(MostlyReadOnly(TopLevel0)),
     P(MostlyReadOnly(TopLevels0And1)),
@@ -89,7 +92,10 @@ pub const STAGE2_OVERLAY_DECODE: [Stage2PermissionEntry; 16] = [
     R,
     P(MostlyReadOnly(Unqualified)),
     P(MostlyReadOnly(TopLevel1)),
-    P(WriteOnly),
+    P(WriteOnly {
+        privileged_execute: false,
+        unprivileged_execute: false,
+    }),
     R,
     P(MostlyReadOnly(TopLevel0)),
     P(MostlyReadOnly(TopLevels0And1)),
@@ -135,6 +141,7 @@ pub fn decode_stage2_direct_permissions(
     let data = match access.bits() {
         0b00 => DataAccess::None,
         0b01 => DataAccess::ReadOnly,
+        0b10 => DataAccess::None,
         0b11 => DataAccess::ReadWrite,
         bits => return Err(AttrError::InvalidStage2Permission(bits)),
     };
@@ -154,7 +161,17 @@ pub fn decode_stage2_direct_permissions(
         }
     };
     Ok(match data {
-        DataAccess::None => Stage2Permission::NoAccess,
+        DataAccess::None if access.bits() == 0b10 => Stage2Permission::WriteOnly {
+            privileged_execute,
+            unprivileged_execute,
+        },
+        DataAccess::None if !privileged_execute && !unprivileged_execute => {
+            Stage2Permission::NoAccess
+        }
+        DataAccess::None => Stage2Permission::ExecuteOnly {
+            privileged_execute,
+            unprivileged_execute,
+        },
         DataAccess::ReadOnly => Stage2Permission::ReadOnly {
             privileged_execute,
             unprivileged_execute,
@@ -241,19 +258,6 @@ fn decode_effective(
     }
 }
 
-pub(crate) fn apply_stage2_overlay(
-    base: Stage2Permission,
-    overlay: Option<u64>,
-    po: u8,
-) -> Stage2Permission {
-    overlay.map_or(base, |register| {
-        combine_stage2_permissions(
-            base,
-            decoded(STAGE2_OVERLAY_DECODE[entry(register, po) as usize]),
-        )
-    })
-}
-
 const fn decoded(entry: Stage2PermissionEntry) -> Stage2Permission {
     match entry {
         P(value) => value,
@@ -267,13 +271,18 @@ pub const fn combine_stage2_permissions(
 ) -> Stage2Permission {
     match (base, overlay) {
         (MostlyReadOnly(a), MostlyReadOnly(b)) => MostlyReadOnly(combine_mro(a, b)),
-        (WriteOnly, WriteOnly) => WriteOnly,
-        (WriteOnly, MostlyReadOnly(_)) | (MostlyReadOnly(_), WriteOnly) => NoAccess,
+        (WriteOnly { .. }, WriteOnly { .. }) => WriteOnly {
+            privileged_execute: false,
+            unprivileged_execute: false,
+        },
+        (WriteOnly { .. }, MostlyReadOnly(_)) | (MostlyReadOnly(_), WriteOnly { .. }) => NoAccess,
 
         (special @ MostlyReadOnly(_), general) | (general, special @ MostlyReadOnly(_)) => {
             combine_mro_with_general(special, general)
         }
-        (WriteOnly, general) | (general, WriteOnly) => combine_wo_with_general(general),
+        (WriteOnly { .. }, general) | (general, WriteOnly { .. }) => {
+            combine_wo_with_general(general)
+        }
 
         (general_a, general_b) => {
             let encoding = encode_general(general_a) & encode_general(general_b);
@@ -317,7 +326,10 @@ const fn combine_mro_with_general(
 
 const fn combine_wo_with_general(general: Stage2Permission) -> Stage2Permission {
     match general {
-        ReadWrite { .. } => WriteOnly,
+        ReadWrite { .. } => WriteOnly {
+            privileged_execute: false,
+            unprivileged_execute: false,
+        },
         NoAccess | ReadOnly { .. } => NoAccess,
         _ => NoAccess,
     }
@@ -326,6 +338,10 @@ const fn combine_wo_with_general(general: Stage2Permission) -> Stage2Permission 
 const fn encode_general(value: Stage2Permission) -> u8 {
     match value {
         NoAccess => 0,
+        ExecuteOnly {
+            privileged_execute,
+            unprivileged_execute,
+        } => (privileged_execute as u8) << 1 | unprivileged_execute as u8,
         ReadOnly {
             privileged_execute,
             unprivileged_execute,
@@ -334,10 +350,32 @@ const fn encode_general(value: Stage2Permission) -> u8 {
             privileged_execute,
             unprivileged_execute,
         } => 0b1100 | (privileged_execute as u8) << 1 | unprivileged_execute as u8,
-        _ => 0,
+        WriteOnly { .. } | MostlyReadOnly(_) => 0,
     }
 }
 
 fn entry(register: u64, index: u8) -> u8 {
     ((register >> (u32::from(index) * 4)) & 0xf) as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn direct_s2ap_write_only_is_preserved() {
+        let decoded = decode_stage2_direct_permissions(
+            Stage2Ap::from_bits(0b10).unwrap(),
+            Stage2ExecuteNever::from_bits(0b10).unwrap(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            decoded,
+            Stage2Permission::WriteOnly {
+                privileged_execute: false,
+                unprivileged_execute: false,
+            }
+        );
+    }
 }

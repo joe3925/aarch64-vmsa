@@ -4,12 +4,15 @@ use crate::attrs::{
     SmmuPrivilegedStreamPermissions, SmmuStreamPermissions, Stage1EffectivePermissions, TableAp,
     TwoPrivilegeTablePermissionLimits,
 };
+use crate::descriptor::{DescriptorInterpretation, PeDescriptors};
 
 use super::Stage1PermissionConfig;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Stage1PermissionRegisters {
+    /// PE PIRE-style entries, or packed three-bit SMMUv3 CD.PIIP entries.
     pub privileged: u64,
+    /// PE PIRE-style entries, or packed three-bit SMMUv3 CD.PIIU entries.
     pub unprivileged: Option<u64>,
     pub gcs_implemented: bool,
 }
@@ -82,6 +85,28 @@ pub const STAGE1_BASE_DECODE: [Stage1BasePermission; 16] = [
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SmmuV3Stage1BasePermission {
+    NoAccess,
+    ReadOnly,
+    ExecuteOnly,
+    ReadExecute,
+    ReservedNoAccess,
+    ReadWrite,
+    ReadWriteExecute,
+}
+
+pub const SMMUV3_STAGE1_BASE_DECODE: [SmmuV3Stage1BasePermission; 8] = [
+    SmmuV3Stage1BasePermission::NoAccess,
+    SmmuV3Stage1BasePermission::ReadOnly,
+    SmmuV3Stage1BasePermission::ExecuteOnly,
+    SmmuV3Stage1BasePermission::ReadExecute,
+    SmmuV3Stage1BasePermission::ReservedNoAccess,
+    SmmuV3Stage1BasePermission::ReadWrite,
+    SmmuV3Stage1BasePermission::ReservedNoAccess,
+    SmmuV3Stage1BasePermission::ReadWriteExecute,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Stage1OverlayPermission {
     NoAccess,
     Read,
@@ -115,9 +140,9 @@ pub const STAGE1_OVERLAY_DECODE: [Stage1OverlayPermission; 16] = [
 
 pub fn decode_single_el_leaf_ap(ap: LeafAp) -> Result<DataAccess, AttrError> {
     match ap.bits() {
-        0b01 => Ok(DataAccess::ReadWrite),
-        0b11 => Ok(DataAccess::ReadOnly),
-        bits => Err(AttrError::InvalidLeafAp(bits)),
+        0b00 | 0b01 => Ok(DataAccess::ReadWrite),
+        0b10 | 0b11 => Ok(DataAccess::ReadOnly),
+        _ => unreachable!("LeafAp is two bits"),
     }
 }
 
@@ -271,14 +296,20 @@ macro_rules! two_privilege_model {
                 raw: RawStage1DirectLeafPermissions,
             ) -> Result<Stage1EffectivePermissions, AttrError> {
                 let (privileged_data, unprivileged_data) = decode_two_privilege_leaf_ap(raw.ap);
-                Ok(Stage1EffectivePermissions {
+                let mut permissions = Stage1EffectivePermissions {
                     privileged_data,
                     unprivileged_data,
                     privileged_execute: !raw.privileged_execute_never,
                     unprivileged_execute: !raw.unprivileged_execute_never,
                     privileged_gcs: false,
                     unprivileged_gcs: false,
-                })
+                };
+                // A writable mapping accessible at EL0 is never executable at
+                // the privileged EL in the two-privilege translation regimes.
+                if unprivileged_data == DataAccess::ReadWrite {
+                    permissions.privileged_execute = false;
+                }
+                Ok(permissions)
             }
 
             fn encode_table(
@@ -308,13 +339,16 @@ two_privilege_model!(El1And0Permissions);
 two_privilege_model!(El2And0Permissions);
 two_privilege_model!(SmmuStreamPermissions);
 
-pub struct Stage1PermissionResolver<'a, C: ?Sized, I = FourBit> {
+pub struct Stage1PermissionResolver<'a, C: ?Sized, I = FourBit, D = PeDescriptors> {
     config: &'a C,
-    index: core::marker::PhantomData<I>,
+    index: core::marker::PhantomData<(I, D)>,
 }
 
-impl<'a, C: Stage1PermissionConfig + ?Sized, I: super::PermissionIndex>
-    Stage1PermissionResolver<'a, C, I>
+impl<'a, C, I, D> Stage1PermissionResolver<'a, C, I, D>
+where
+    C: Stage1PermissionConfig + ?Sized,
+    I: super::PermissionIndex,
+    D: DescriptorInterpretation,
 {
     pub const fn new(config: &'a C) -> Self {
         Self {
@@ -343,7 +377,7 @@ impl<'a, C: Stage1PermissionConfig + ?Sized, I: super::PermissionIndex>
 
         for pi in 0..16 {
             for po in 0..po_count {
-                if decode_effective(registers, settings.overlays, pi, po) == Some(wanted) {
+                if decode_effective::<D>(registers, settings.overlays, pi, po) == Some(wanted) {
                     return Ok(PermissionIndices {
                         pi: FourBit::new(pi)?,
                         po: I::new(po)?,
@@ -365,7 +399,7 @@ impl<'a, C: Stage1PermissionConfig + ?Sized, I: super::PermissionIndex>
                 return Err(AttrError::PermissionIndirectionUnavailable);
             }
         };
-        decode_effective(
+        decode_effective::<D>(
             registers,
             settings.overlays,
             indices.pi.bits(),
@@ -385,13 +419,35 @@ struct Bits {
     wxn: bool,
 }
 
-fn decode_effective(
+fn decode_effective<D: DescriptorInterpretation>(
     registers: Stage1PermissionRegisters,
     overlays: Stage1PermissionOverlays,
     pi: u8,
     po: u8,
 ) -> Option<Stage1EffectivePermissions> {
-    let privileged = decode_pair(
+    let privileged_base =
+        decode_interpreted_base::<D>(registers.privileged, pi, registers.gcs_implemented);
+    let unprivileged_base = registers
+        .unprivileged
+        .map(|base| decode_interpreted_base::<D>(base, pi, registers.gcs_implemented))
+        .unwrap_or_else(no_bits);
+
+    // This base-permission combination is reserved and removes all base
+    // permissions before any permission overlay is applied.
+    if (privileged_base.execute || privileged_base.gcs)
+        && (unprivileged_base.write || unprivileged_base.gcs)
+    {
+        return Some(Stage1EffectivePermissions {
+            privileged_data: DataAccess::None,
+            unprivileged_data: DataAccess::None,
+            privileged_execute: false,
+            unprivileged_execute: false,
+            privileged_gcs: false,
+            unprivileged_gcs: false,
+        });
+    }
+
+    let privileged = decode_pair::<D>(
         registers.privileged,
         overlays.privileged,
         pi,
@@ -401,7 +457,7 @@ fn decode_effective(
     let unprivileged = registers
         .unprivileged
         .map(|base| {
-            decode_pair(
+            decode_pair::<D>(
                 base,
                 overlays.unprivileged,
                 pi,
@@ -425,17 +481,22 @@ fn decode_effective(
     })
 }
 
-fn decode_pair(
+fn decode_pair<D: DescriptorInterpretation>(
     base_register: u64,
     overlay: Option<u64>,
     pi: u8,
     po: u8,
     gcs_implemented: bool,
 ) -> Bits {
-    let base = decode_base(entry(base_register, pi), gcs_implemented);
+    let mut base = decode_interpreted_base::<D>(base_register, pi, gcs_implemented);
     match overlay {
         Some(overlay) => apply_overlay(base, entry(overlay, po)),
-        None => base,
+        None => {
+            if base.wxn && base.write {
+                base.execute = false;
+            }
+            base
+        }
     }
 }
 
@@ -571,4 +632,36 @@ const fn data_access(bits: Bits) -> Option<DataAccess> {
 
 fn entry(register: u64, index: u8) -> u8 {
     ((register >> (u32::from(index) * 4)) & 0xf) as u8
+}
+
+fn decode_interpreted_base<D: DescriptorInterpretation>(
+    register: u64,
+    index: u8,
+    gcs_implemented: bool,
+) -> Bits {
+    if D::USES_SMMUV3_STAGE1_PERMISSION_REGISTERS {
+        decode_smmuv3_base(((register >> (u32::from(index) * 3)) & 0x7) as u8)
+    } else {
+        decode_base(entry(register, index), gcs_implemented)
+    }
+}
+
+fn decode_smmuv3_base(raw: u8) -> Bits {
+    use SmmuV3Stage1BasePermission::*;
+    let (read, write, execute) = match SMMUV3_STAGE1_BASE_DECODE[raw as usize] {
+        NoAccess | ReservedNoAccess => (false, false, false),
+        ReadOnly => (true, false, false),
+        ExecuteOnly => (false, false, true),
+        ReadExecute => (true, false, true),
+        ReadWrite => (true, true, false),
+        ReadWriteExecute => (true, true, true),
+    };
+    Bits {
+        read,
+        write,
+        execute,
+        gcs: false,
+        apply_overlay: false,
+        wxn: false,
+    }
 }

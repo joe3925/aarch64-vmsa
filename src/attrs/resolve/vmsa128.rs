@@ -21,6 +21,7 @@ use super::{
     HasMemoryCodec, MemoryAttributeCodec, RawStage1LeafPas, Stage1MemoryConfig, Stage1PasResolver,
     Stage1PermissionConfig, Stage1PermissionResolver, Stage2MemoryConfig, Stage2PasResolver,
     Stage2PermissionConfig, Stage2PermissionResolver, decode_shareability,
+    decode_smmuv3_stage1_memory, encode_smmuv3_stage1_memory,
 };
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodecCell<Vmsa128<E>, R, G, Cfg> for Stage1
@@ -72,9 +73,14 @@ where
         } else {
             return Err(AttrError::InvalidD128Alias);
         };
-        let attr_index =
-            <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::encode(config, attrs.memory)?;
-        let permissions = Stage1PermissionResolver::new(config).resolve(attrs.permissions)?;
+        let attr_index = if R::DescriptorInterpretation::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+            encode_smmuv3_stage1_memory(config, attrs.memory)?
+        } else {
+            <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::encode(config, attrs.memory)?
+        };
+        let permissions =
+            Stage1PermissionResolver::<_, _, R::DescriptorInterpretation>::new(config)
+                .resolve(attrs.permissions)?;
         let shareability = RawShareability::from_bits(attrs.controls.shareability as u8)?;
         let software = software_ten(attrs.controls.software)?;
 
@@ -135,8 +141,13 @@ where
         };
 
         Ok(SemanticStage1LeafAttrs {
-            memory: <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::decode(config, raw.attr_index)?,
-            permissions: Stage1PermissionResolver::new(config).decode(raw.permissions)?,
+            memory: if R::DescriptorInterpretation::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+                decode_smmuv3_stage1_memory(config, raw.attr_index)?
+            } else {
+                <Vmsa128<E> as HasMemoryCodec<Stage1>>::Codec::decode(config, raw.attr_index)?
+            },
+            permissions: Stage1PermissionResolver::<_, _, R::DescriptorInterpretation>::new(config)
+                .decode(raw.permissions)?,
             pas: R::PasModel::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
             controls: SemanticVmsa128Stage1LeafControls {
                 bbm_nt: raw.bbm_nt,
@@ -209,7 +220,7 @@ where
             dirty: attrs.controls.dirty_state.into(),
             shareability,
             access_flag: attrs.controls.access_flag,
-            force_no_execute: attrs.controls.force_no_execute,
+            force_no_xs: attrs.controls.force_no_xs,
             contiguous: attrs.controls.contiguous,
             assured_only: attrs.controls.assured_only,
             permissions,
@@ -247,7 +258,7 @@ where
                 dirty_state: raw.dirty.into(),
                 shareability: decode_shareability(raw.shareability)?,
                 access_flag: raw.access_flag,
-                force_no_execute: raw.force_no_execute,
+                force_no_xs: raw.force_no_xs,
                 contiguous: raw.contiguous,
                 assured_only: raw.assured_only,
                 software: SoftwareMetadata::new(software.bits()),

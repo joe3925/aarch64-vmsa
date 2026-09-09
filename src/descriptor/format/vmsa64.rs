@@ -73,7 +73,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
         require_leaf_level::<G>(level)?;
         let mut raw = 0;
         raw = insert_address(raw, output_pa.0, Self::ADDRESS_FIELD_MASK);
-        raw = bits::VMSA64_STAGE1_ATTR_INDEX.insert(raw, f.attr_index.bits().into());
+        raw = bits::VMSA64_STAGE1_ATTR_INDEX.insert(raw, (f.attr_index.bits() & 7).into());
         raw = bits::VMSA64_STAGE1_ATTR_INDEX_HIGH
             .insert(raw, ((f.attr_index.bits() >> 3) & 1).into());
         raw = bits::VMSA64_STAGE1_NS.insert(raw, f.ns.into());

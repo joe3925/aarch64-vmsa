@@ -65,7 +65,7 @@ pub enum MemoryAttributes {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum FwbStage2Memory {
     Device(DeviceMemoryType),
-    ForceNormalNonCacheable,
+    PreserveDeviceOrForceNormalNonCacheable,
     ForceNormalWriteBack,
     UseStage1,
     ForceNormalWriteBackNoTagAccess,
@@ -201,6 +201,7 @@ pub struct SemanticVmsa64Stage2LeafControls {
 pub struct SemanticSmmuV2Stage2LeafControls {
     pub shareability: Shareability,
     pub access_flag: bool,
+    pub dirty: DirtyControl,
     pub contiguous: bool,
     pub read_allocate: SmmuV2AllocationHint,
     pub write_allocate: SmmuV2AllocationHint,
@@ -242,7 +243,8 @@ pub struct SemanticVmsa128Stage2LeafControls {
     pub dirty_state: DirtyState,
     pub shareability: Shareability,
     pub access_flag: bool,
-    pub force_no_execute: bool,
+    /// Force the resultant XS attribute to zero (the architectural FnXS bit).
+    pub force_no_xs: bool,
     pub contiguous: bool,
     pub assured_only: bool,
     pub software: SoftwareMetadata,

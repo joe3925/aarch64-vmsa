@@ -25,8 +25,9 @@ use super::{
     RawStage1TablePermissionLimits, ShareabilityConfig, Stage1BasePermissions,
     Stage1DirectPermissionModel, Stage1MemoryConfig, Stage1PasResolver, Stage1PermissionConfig,
     Stage1PermissionResolver, Stage2BasePermissions, Stage2MemoryConfig, Stage2PasResolver,
-    Stage2PermissionConfig, Stage2PermissionResolver, apply_stage1_overlay, apply_stage2_overlay,
-    decode_shareability, decode_stage2_direct_permissions, require_effective_shareability,
+    Stage2PermissionConfig, Stage2PermissionResolver, apply_stage1_overlay, decode_shareability,
+    decode_smmuv3_stage1_memory, decode_stage2_direct_permissions, encode_smmuv3_stage1_memory,
+    require_effective_shareability,
 };
 
 trait Lpa2GranulePolicy<C>: TranslationGranule {
@@ -65,7 +66,7 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
     }
 }
 
-fn encode_stage1_leaf_core<F, P, A, C>(
+fn encode_stage1_leaf_core<F, P, A, C, I>(
     config: &C,
     attrs: SemanticStage1LeafAttrs<
         Stage1EffectivePermissions,
@@ -79,8 +80,13 @@ where
     P: Stage1DirectPermissionModel,
     A: Stage1PasResolver,
     C: Stage1MemoryConfig + Stage1PermissionConfig,
+    I: DescriptorInterpretation,
 {
-    let attr_index = F::Codec::encode(config, attrs.memory)?;
+    let attr_index = if I::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+        encode_smmuv3_stage1_memory(config, attrs.memory)?
+    } else {
+        F::Codec::encode(config, attrs.memory)?
+    };
     let settings = config.stage1_permissions();
     let permissions = match settings.base {
         Stage1BasePermissions::Direct => {
@@ -140,8 +146,8 @@ where
                 DirtyControl::Indirect(state) => state,
                 DirtyControl::Direct(_) => return Err(AttrError::PermissionModeMismatch),
             };
-            let indices =
-                Stage1PermissionResolver::<C, ThreeBit>::new(config).resolve(attrs.permissions)?;
+            let indices = Stage1PermissionResolver::<C, ThreeBit, I>::new(config)
+                .resolve(attrs.permissions)?;
             RawVmsa64PermissionFields {
                 primary: indices.pi,
                 dirty: matches!(state, DirtyState::Clean),
@@ -179,7 +185,7 @@ where
     })
 }
 
-fn decode_stage1_leaf_core<F, P, A, C>(
+fn decode_stage1_leaf_core<F, P, A, C, I>(
     config: &C,
     raw: RawVmsa64Stage1LeafAttrs,
 ) -> Result<
@@ -196,6 +202,7 @@ where
     P: Stage1DirectPermissionModel,
     A: Stage1PasResolver,
     C: Stage1MemoryConfig + Stage1PermissionConfig,
+    I: DescriptorInterpretation,
 {
     let (nse, global) = if A::USES_NSE {
         (raw.alias_bit, true)
@@ -232,7 +239,7 @@ where
             )
         }
         Stage1BasePermissions::Indirect(_) => (
-            Stage1PermissionResolver::<C, ThreeBit>::new(config).decode(PermissionIndices {
+            Stage1PermissionResolver::<C, ThreeBit, I>::new(config).decode(PermissionIndices {
                 pi: raw.permissions.primary,
                 po: raw.permissions.overlay,
             })?,
@@ -244,7 +251,11 @@ where
         ),
     };
     Ok(SemanticStage1LeafAttrs {
-        memory: F::Codec::decode(config, raw.attr_index)?,
+        memory: if I::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+            decode_smmuv3_stage1_memory(config, raw.attr_index)?
+        } else {
+            F::Codec::decode(config, raw.attr_index)?
+        },
         permissions,
         pas: A::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
         controls: SemanticVmsa64Stage1LeafControls {
@@ -346,7 +357,13 @@ where
         attrs: SemanticLeafAttrs<Vmsa64<E>, R>,
     ) -> Result<InterpretedLeafFields<Vmsa64<E>, R, G>, AttrError> {
         require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
-        encode_stage1_leaf_core::<Vmsa64<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage1_leaf_core::<
+            Vmsa64<E>,
+            R::PrivilegeModel,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+        >(config, attrs)
     }
 
     fn encode_table(
@@ -363,7 +380,13 @@ where
         raw: InterpretedLeafFields<Vmsa64<E>, R, G>,
     ) -> Result<SemanticLeafAttrs<Vmsa64<E>, R>, AttrError> {
         require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
-        decode_stage1_leaf_core::<Vmsa64<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, raw)
+        decode_stage1_leaf_core::<
+            Vmsa64<E>,
+            R::PrivilegeModel,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+        >(config, raw)
     }
 
     fn decode_table(
@@ -411,7 +434,13 @@ where
     ) -> Result<InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
         G::encode_shareability(config, attrs.controls.shareability)?;
-        encode_stage1_leaf_core::<Vmsa64Lpa2<E>, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage1_leaf_core::<
+            Vmsa64Lpa2<E>,
+            R::PrivilegeModel,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+        >(config, attrs)
     }
 
     fn encode_table(
@@ -428,10 +457,13 @@ where
         raw: InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>,
     ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
         require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
-        let mut attrs =
-            decode_stage1_leaf_core::<Vmsa64Lpa2<E>, R::PrivilegeModel, R::PasModel, Cfg>(
-                config, raw,
-            )?;
+        let mut attrs = decode_stage1_leaf_core::<
+            Vmsa64Lpa2<E>,
+            R::PrivilegeModel,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+        >(config, raw)?;
         G::decode_shareability(config, &mut attrs.controls.shareability)?;
         Ok(attrs)
     }
@@ -495,16 +527,14 @@ where
                     ) else {
                         continue;
                     };
-                    let po_count = if settings.s2por_el1.is_some() { 8 } else { 1 };
-                    for po in 0..po_count {
-                        if apply_stage2_overlay(base, settings.s2por_el1, po) == attrs.permissions {
-                            encoding = Some(RawVmsa64PermissionFields {
-                                primary: FourBit::new((ap & 1) | (dbm as u8) << 1 | xn << 2)?,
-                                dirty: ap & 2 != 0,
-                                overlay: ThreeBit::new(po)?,
-                            });
-                            break 'permissions;
-                        }
+                    // S2POR_EL1 is disabled when direct permissions are selected.
+                    if base == attrs.permissions {
+                        encoding = Some(RawVmsa64PermissionFields {
+                            primary: FourBit::new((ap & 1) | (dbm as u8) << 1 | xn << 2)?,
+                            dirty: ap & 2 != 0,
+                            overlay: ThreeBit::new(0)?,
+                        });
+                        break 'permissions;
                     }
                 }
             }
@@ -564,7 +594,7 @@ where
                 P::XNX,
             )?;
             (
-                apply_stage2_overlay(base, settings.s2por_el1, raw.permissions.overlay.bits()),
+                base,
                 DirtyControl::Direct(if bits & 2 != 0 {
                     DirtyBitManagement::HardwareManaged
                 } else {

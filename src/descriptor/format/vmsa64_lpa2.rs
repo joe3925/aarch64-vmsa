@@ -81,9 +81,10 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
         f: Self::LeafFields,
     ) -> Result<u64, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         let mut raw = 0;
         raw |= encode_address::<G>(output_pa.0) as u128;
-        raw = b::VMSA64_STAGE1_ATTR_INDEX.insert(raw, f.attr_index.bits().into());
+        raw = b::VMSA64_STAGE1_ATTR_INDEX.insert(raw, (f.attr_index.bits() & 7).into());
         raw = b::VMSA64_STAGE1_ATTR_INDEX_HIGH.insert(raw, ((f.attr_index.bits() >> 3) & 1).into());
         raw = b::VMSA64_STAGE1_NS.insert(raw, f.ns.into());
         if uses_ds(G::KIND) {
@@ -174,6 +175,7 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
         f: Self::LeafFields,
     ) -> Result<u64, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         let mut raw = 0;
         raw |= encode_address::<G>(output_pa.0) as u128;
         raw = b::VMSA64_STAGE2_MEM_ATTR.insert(raw, f.mem_attr.bits().into());
@@ -232,6 +234,22 @@ fn require_leaf_level<G: TranslationGranule>(level: Level) -> Result<(), Descrip
         Ok(())
     } else {
         Err(DescriptorError::InvalidLeafLevel { level })
+    }
+}
+
+fn require_contiguous<G: TranslationGranule>(
+    level: Level,
+    contiguous: bool,
+) -> Result<(), DescriptorError> {
+    if contiguous
+        && matches!(
+            (G::KIND, level.as_i8()),
+            (GranuleKind::Size4KiB, 0) | (GranuleKind::Size16KiB, 1) | (GranuleKind::Size64KiB, 1)
+        )
+    {
+        Err(DescriptorError::ReservedFieldSet { bit: 52 })
+    } else {
+        Ok(())
     }
 }
 

@@ -63,6 +63,9 @@ pub trait Stage1MemoryConfig {
     fn mair2(&self) -> Option<u64> {
         None
     }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        false
+    }
 }
 
 pub trait Stage2MemoryConfig {
@@ -112,6 +115,9 @@ impl<T: Stage1MemoryConfig + ?Sized> Stage1MemoryConfig for &T {
     fn mair2(&self) -> Option<u64> {
         (**self).mair2()
     }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        (**self).smmu_v3_aie_enabled()
+    }
 }
 impl_ref_config!(Stage2MemoryConfig, stage2_memory_mode, Stage2MemoryMode);
 impl<T: Stage1PermissionConfig + ?Sized> Stage1PermissionConfig for &T {
@@ -131,6 +137,7 @@ impl_ref_config!(ShareabilityConfig, effective_shareability, Shareability);
 pub struct LiveVmsaConfig<Pas = ()> {
     pub mair: u64,
     pub mair2: Option<u64>,
+    pub smmu_v3_aie: bool,
     pub stage1_permissions: Stage1PermissionSettings,
     pub stage2_permissions: Stage2PermissionSettings,
     pub stage2_memory_mode: Stage2MemoryMode,
@@ -145,6 +152,9 @@ impl<P> Stage1MemoryConfig for LiveVmsaConfig<P> {
     }
     fn mair2(&self) -> Option<u64> {
         self.mair2
+    }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        self.smmu_v3_aie
     }
 }
 impl<P> Stage2MemoryConfig for LiveVmsaConfig<P> {

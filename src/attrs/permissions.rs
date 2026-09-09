@@ -150,8 +150,15 @@ pub enum MostlyReadOnly {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Stage2Permission {
     NoAccess,
+    ExecuteOnly {
+        privileged_execute: bool,
+        unprivileged_execute: bool,
+    },
     MostlyReadOnly(MostlyReadOnly),
-    WriteOnly,
+    WriteOnly {
+        privileged_execute: bool,
+        unprivileged_execute: bool,
+    },
     ReadOnly {
         privileged_execute: bool,
         unprivileged_execute: bool,
@@ -169,7 +176,11 @@ impl Stage2Permission {
         unprivileged_execute: bool,
     ) -> Self {
         match data {
-            DataAccess::None => Self::NoAccess,
+            DataAccess::None if !privileged_execute && !unprivileged_execute => Self::NoAccess,
+            DataAccess::None => Self::ExecuteOnly {
+                privileged_execute,
+                unprivileged_execute,
+            },
             DataAccess::ReadOnly => Self::ReadOnly {
                 privileged_execute,
                 unprivileged_execute,

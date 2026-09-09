@@ -163,6 +163,8 @@ pub trait DescriptorInterpretation: private::InterpretationSealed + Copy + 'stat
     const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool;
     /// Whether stage-1 permission overlays are defined for this interpreter.
     const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool;
+    const USES_SMMUV3_STAGE1_PERMISSION_REGISTERS: bool = false;
+    const USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES: bool = false;
 }
 
 /// Maps a format, stage, and granule to the layout understood by an interpreter.
@@ -198,6 +200,8 @@ impl DescriptorInterpretation for SmmuV2Descriptors {
 impl DescriptorInterpretation for SmmuV3Descriptors {
     const SUPPORTS_STAGE1_PERMISSION_INDIRECTION: bool = true;
     const SUPPORTS_STAGE1_PERMISSION_OVERLAYS: bool = false;
+    const USES_SMMUV3_STAGE1_PERMISSION_REGISTERS: bool = true;
+    const USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES: bool = true;
 }
 
 impl<F, S, G> InterpretsDescriptors<F, S, G> for PeDescriptors
