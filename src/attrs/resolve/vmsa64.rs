@@ -1,27 +1,33 @@
 use crate::address::{Level, TranslationGranule};
+use crate::attrs::SemanticAttributeTypes;
 use crate::attrs::{
     AttrError, DirtyBitManagement, DirtyControl, DirtyState, FourBit, LeafAp, MemoryAttributes,
-    PermissionIndices, RawShareability, RawVmsa64PermissionFields, RawVmsa64Stage1LeafAttrs,
-    RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
-    SemanticLeafAttrs, SemanticStage1LeafAttrs, SemanticStage1TableAttrs, SemanticStage2LeafAttrs,
-    SemanticTableAttrs, SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
+    PermissionIndices, PrivilegeModel, RawShareability, RawVmsa64PermissionFields,
+    RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs, RawVmsa64Stage2LeafAttrs,
+    RawVmsa64Stage2TableAttrs, SemanticLeafAttrs, SemanticStage1LeafAttrs,
+    SemanticStage1TableAttrs, SemanticStage2LeafAttrs, SemanticTableAttrs,
+    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
     SemanticVmsa64Stage2LeafControls, SemanticVmsa64Stage2TableAttrs, Shareability,
-    SoftwareMetadata, Stage1EffectivePermissions, Stage2Ap, Stage2ExecuteNever,
-    Stage2MemoryAttributes, Stage2PasContext, Stage2Permission, Stage2PermissionModel, ThreeBit,
+    SoftwareMetadata, Stage1PasModel, Stage1Permissions, Stage2Ap, Stage2ExecuteNever,
+    Stage2MemoryAttributes, Stage2PasContext, Stage2Permissions, ThreeBit,
 };
-use crate::config::format::{Vmsa64, Vmsa64Lpa2};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2};
 use crate::config::granule::{Granule4KiB, Granule16KiB, Granule64KiB};
-use crate::regime::{RegimeLeafFields, RegimeTableFields, Stage1Regime, Stage2Regime};
+use crate::descriptor::{DescriptorInterpretation, HasLayout, InterpretsDescriptors};
+use crate::regime::{
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, Stage1PrivilegeModel,
+    Stage1Regime, Stage2Regime,
+};
 use crate::translation::{Stage1, Stage2};
 
-use super::codec::AttributeCodecCell;
+use super::codec::AttributeCodec;
 use super::{
-    HasMemoryCodec, MemoryAttributeCodec, RawStage1DirectLeafPermissions, RawStage1LeafPas,
-    RawStage1TablePermissionLimits, ShareabilityConfig, Stage1BasePermissions,
+    HasMemoryCodec, MemoryAttributeCodec, PermissionCodec, RawStage1DirectLeafPermissions,
+    RawStage1LeafPas, RawStage1TablePermissionLimits, ShareabilityConfig, Stage1BasePermissions,
     Stage1DirectPermissionModel, Stage1MemoryConfig, Stage1PasResolver, Stage1PermissionConfig,
-    Stage1PermissionResolver, Stage2BasePermissions, Stage2MemoryConfig, Stage2PasResolver,
-    Stage2PermissionConfig, Stage2PermissionResolver, apply_stage1_overlay, apply_stage2_overlay,
-    decode_shareability, decode_stage2_direct_permissions, require_effective_shareability,
+    Stage1PermissionEncoding, Stage2BasePermissions, Stage2DirectEncoding, Stage2MemoryConfig,
+    Stage2PasResolver, Stage2PermissionConfig, Stage2PermissionEncoding, decode_shareability,
+    decode_smmuv3_stage1_memory, encode_smmuv3_stage1_memory, require_effective_shareability,
 };
 
 trait Lpa2GranulePolicy<C>: TranslationGranule {
@@ -60,10 +66,10 @@ impl<C: ShareabilityConfig> Lpa2GranulePolicy<C> for Granule64KiB {
     }
 }
 
-fn encode_stage1_leaf_core<F, P, A, C>(
+fn encode_stage1_leaf_core<F, P, A, C, I, K>(
     config: &C,
     attrs: SemanticStage1LeafAttrs<
-        Stage1EffectivePermissions,
+        Stage1Permissions,
         A::LeafAttr,
         SemanticVmsa64Stage1LeafControls,
     >,
@@ -74,75 +80,47 @@ where
     P: Stage1DirectPermissionModel,
     A: Stage1PasResolver,
     C: Stage1MemoryConfig + Stage1PermissionConfig,
+    I: DescriptorInterpretation,
+    K: PermissionCodec<C, Stage1PermissionEncoding<ThreeBit>, Permissions = Stage1Permissions>,
 {
-    let attr_index = F::Codec::encode(config, attrs.memory)?;
+    let attr_index = if I::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+        encode_smmuv3_stage1_memory(config, attrs.memory)?
+    } else {
+        F::Codec::encode(config, attrs.memory)?
+    };
     let settings = config.stage1_permissions();
-    let permissions = match settings.base {
-        Stage1BasePermissions::Direct => {
+    let permission_encoding = K::encode(config, attrs.permissions)?;
+    let permissions = match (settings.base, permission_encoding) {
+        (Stage1BasePermissions::Direct, Stage1PermissionEncoding::Direct(encoding)) => {
             let dbm = match attrs.controls.dirty {
                 DirtyControl::Direct(DirtyBitManagement::SoftwareManaged) => false,
                 DirtyControl::Direct(DirtyBitManagement::HardwareManaged) => true,
                 DirtyControl::Indirect(_) => return Err(AttrError::PermissionModeMismatch),
             };
-            let mut encoding = None;
-            'permissions: for ap in 0..4 {
-                for pxn in [false, true] {
-                    for uxn in [false, true] {
-                        let direct = RawStage1DirectLeafPermissions {
-                            ap: LeafAp::from_bits(ap)?,
-                            privileged_execute_never: pxn,
-                            unprivileged_execute_never: uxn,
-                        };
-                        let Ok(base) = P::decode_leaf(direct) else {
-                            continue;
-                        };
-                        let po_count = if settings.overlays.privileged.is_some()
-                            || settings.overlays.unprivileged.is_some()
-                        {
-                            8
-                        } else {
-                            1
-                        };
-                        for po in 0..po_count {
-                            let effective = if settings.overlays.privileged.is_some()
-                                || settings.overlays.unprivileged.is_some()
-                            {
-                                apply_stage1_overlay(base, settings.overlays, po)
-                            } else {
-                                Some(base)
-                            };
-                            if effective == Some(attrs.permissions) {
-                                encoding = Some(RawVmsa64PermissionFields {
-                                    primary: FourBit::new(
-                                        (ap & 1)
-                                            | (dbm as u8) << 1
-                                            | (pxn as u8) << 2
-                                            | (uxn as u8) << 3,
-                                    )?,
-                                    dirty: ap & 2 != 0,
-                                    overlay: ThreeBit::new(po)?,
-                                });
-                                break 'permissions;
-                            }
-                        }
-                    }
-                }
+            let ap = encoding.leaf.ap.bits();
+            RawVmsa64PermissionFields {
+                primary: FourBit::new(
+                    (ap & 1)
+                        | (dbm as u8) << 1
+                        | (encoding.leaf.privileged_execute_never as u8) << 2
+                        | (encoding.leaf.unprivileged_execute_never as u8) << 3,
+                )?,
+                dirty: ap & 2 != 0,
+                overlay: encoding.overlay,
             }
-            encoding.ok_or(AttrError::UnencodablePermissions)?
         }
-        Stage1BasePermissions::Indirect(_) => {
+        (Stage1BasePermissions::Indirect(_), Stage1PermissionEncoding::Indirect(indices)) => {
             let state = match attrs.controls.dirty {
                 DirtyControl::Indirect(state) => state,
                 DirtyControl::Direct(_) => return Err(AttrError::PermissionModeMismatch),
             };
-            let indices =
-                Stage1PermissionResolver::<C, ThreeBit>::new(config).resolve(attrs.permissions)?;
             RawVmsa64PermissionFields {
                 primary: indices.pi,
                 dirty: matches!(state, DirtyState::Clean),
                 overlay: indices.po,
             }
         }
+        _ => return Err(AttrError::PermissionModeMismatch),
     };
     let pas = A::resolve_leaf(attrs.pas)?;
     let alias_bit = if A::USES_NSE {
@@ -174,15 +152,11 @@ where
     })
 }
 
-fn decode_stage1_leaf_core<F, P, A, C>(
+fn decode_stage1_leaf_core<F, P, A, C, I, K>(
     config: &C,
     raw: RawVmsa64Stage1LeafAttrs,
 ) -> Result<
-    SemanticStage1LeafAttrs<
-        Stage1EffectivePermissions,
-        A::LeafAttr,
-        SemanticVmsa64Stage1LeafControls,
-    >,
+    SemanticStage1LeafAttrs<Stage1Permissions, A::LeafAttr, SemanticVmsa64Stage1LeafControls>,
     AttrError,
 >
 where
@@ -191,6 +165,8 @@ where
     P: Stage1DirectPermissionModel,
     A: Stage1PasResolver,
     C: Stage1MemoryConfig + Stage1PermissionConfig,
+    I: DescriptorInterpretation,
+    K: PermissionCodec<C, Stage1PermissionEncoding<ThreeBit>, Permissions = Stage1Permissions>,
 {
     let (nse, global) = if A::USES_NSE {
         (raw.alias_bit, true)
@@ -202,23 +178,18 @@ where
         (false, true)
     };
     let settings = config.stage1_permissions();
-    let (permissions, dirty) = match settings.base {
+    let (encoding, dirty) = match settings.base {
         Stage1BasePermissions::Direct => {
             let bits = raw.permissions.primary.bits();
-            let base = P::decode_leaf(RawStage1DirectLeafPermissions {
-                ap: LeafAp::from_bits((bits & 1) | (raw.permissions.dirty as u8) << 1)?,
-                privileged_execute_never: bits & 4 != 0,
-                unprivileged_execute_never: bits & 8 != 0,
-            })?;
             (
-                if settings.overlays.privileged.is_some()
-                    || settings.overlays.unprivileged.is_some()
-                {
-                    apply_stage1_overlay(base, settings.overlays, raw.permissions.overlay.bits())
-                        .ok_or(AttrError::UnencodablePermissions)?
-                } else {
-                    base
-                },
+                Stage1PermissionEncoding::Direct(super::Stage1DirectEncoding {
+                    leaf: RawStage1DirectLeafPermissions {
+                        ap: LeafAp::from_bits((bits & 1) | (raw.permissions.dirty as u8) << 1)?,
+                        privileged_execute_never: bits & 4 != 0,
+                        unprivileged_execute_never: bits & 8 != 0,
+                    },
+                    overlay: raw.permissions.overlay,
+                }),
                 DirtyControl::Direct(if bits & 2 != 0 {
                     DirtyBitManagement::HardwareManaged
                 } else {
@@ -227,10 +198,10 @@ where
             )
         }
         Stage1BasePermissions::Indirect(_) => (
-            Stage1PermissionResolver::<C, ThreeBit>::new(config).decode(PermissionIndices {
+            Stage1PermissionEncoding::Indirect(PermissionIndices {
                 pi: raw.permissions.primary,
                 po: raw.permissions.overlay,
-            })?,
+            }),
             DirtyControl::Indirect(if raw.permissions.dirty {
                 DirtyState::Clean
             } else {
@@ -238,8 +209,13 @@ where
             }),
         ),
     };
+    let permissions = K::decode(config, encoding)?;
     Ok(SemanticStage1LeafAttrs {
-        memory: F::Codec::decode(config, raw.attr_index)?,
+        memory: if I::USES_SMMUV3_STAGE1_MEMORY_ATTRIBUTES {
+            decode_smmuv3_stage1_memory(config, raw.attr_index)?
+        } else {
+            F::Codec::decode(config, raw.attr_index)?
+        },
         permissions,
         pas: A::decode_leaf(RawStage1LeafPas { ns: raw.ns, nse })?,
         controls: SemanticVmsa64Stage1LeafControls {
@@ -256,7 +232,7 @@ where
 
 fn encode_stage1_table_core<P, A>(
     attrs: SemanticStage1TableAttrs<
-        P::TablePermissionLimits,
+        P::TableRestrictions,
         A::TableAttr,
         SemanticVmsa64Stage1TableControls,
     >,
@@ -267,12 +243,12 @@ where
 {
     let ns_table = A::resolve_table(attrs.pas)?;
     debug_assert_eq!(ns_table.is_some(), A::USES_NSTABLE);
-    let permission_limits = P::encode_table(attrs.permission_limits)?;
+    let restrictions = P::encode_table(attrs.restrictions)?;
     Ok(RawVmsa64Stage1TableAttrs {
         access_flag: attrs.controls.access_flag,
-        privileged_execute_never_limit: permission_limits.privileged_execute_never_limit,
-        unprivileged_execute_never_limit: permission_limits.unprivileged_execute_never_limit,
-        ap_table: permission_limits.ap_table,
+        privileged_execute_never_limit: restrictions.privileged_execute_never_limit,
+        unprivileged_execute_never_limit: restrictions.unprivileged_execute_never_limit,
+        ap_table: restrictions.ap_table,
         ns_table: ns_table.unwrap_or(false),
         software: software_four(attrs.controls.software)?,
     })
@@ -281,11 +257,7 @@ where
 fn decode_stage1_table_core<P, A>(
     raw: RawVmsa64Stage1TableAttrs,
 ) -> Result<
-    SemanticStage1TableAttrs<
-        P::TablePermissionLimits,
-        A::TableAttr,
-        SemanticVmsa64Stage1TableControls,
-    >,
+    SemanticStage1TableAttrs<P::TableRestrictions, A::TableAttr, SemanticVmsa64Stage1TableControls>,
     AttrError,
 >
 where
@@ -293,7 +265,7 @@ where
     A: Stage1PasResolver,
 {
     Ok(SemanticStage1TableAttrs {
-        permission_limits: P::decode_table(RawStage1TablePermissionLimits {
+        restrictions: P::decode_table(RawStage1TablePermissionLimits {
             ap_table: raw.ap_table,
             privileged_execute_never_limit: raw.privileged_execute_never_limit,
             unprivileged_execute_never_limit: raw.unprivileged_execute_never_limit,
@@ -306,80 +278,156 @@ where
     })
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64, R, G, Cfg> for Stage1
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64<E>, R, G, Cfg> for Stage1
 where
     R: Stage1Regime<Stage = Stage1>,
     G: TranslationGranule,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig,
-    R::PrivilegeModel: Stage1DirectPermissionModel,
+    Stage1PrivilegeModel<R>: Stage1DirectPermissionModel,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage1PermissionEncoding<ThreeBit>, Permissions = Stage1Permissions>,
     R::PasModel: Stage1PasResolver,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64<E>,
+            Stage1,
+            G,
+            Layout = <Vmsa64<E> as HasLayout<Stage1, G>>::Layout,
+        >,
+    Vmsa64<E>: HasRegimeLayout<R, G, Layout = <Vmsa64<E> as HasLayout<Stage1, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage1,
+            R,
+            Leaf = SemanticStage1LeafAttrs<
+                Stage1Permissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
+                SemanticVmsa64Stage1LeafControls,
+            >,
+            Table = SemanticStage1TableAttrs<
+                <Stage1PrivilegeModel<R> as PrivilegeModel>::TableRestrictions,
+                <R::PasModel as Stage1PasModel>::TableAttr,
+                SemanticVmsa64Stage1TableControls,
+            >,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64, R, G>, AttrError> {
-        encode_stage1_leaf_core::<Vmsa64, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        attrs: SemanticLeafAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64<E>, R, G>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        encode_stage1_leaf_core::<
+            Vmsa64<E>,
+            Stage1PrivilegeModel<R>,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+            R::PermissionCodec,
+        >(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64, R>,
-    ) -> Result<RegimeTableFields<Vmsa64, R, G>, AttrError> {
-        encode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(attrs)
+        attrs: SemanticTableAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64<E>, R, G>, AttrError> {
+        encode_stage1_table_core::<Stage1PrivilegeModel<R>, R::PasModel>(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64, R>, AttrError> {
-        decode_stage1_leaf_core::<Vmsa64, R::PrivilegeModel, R::PasModel, Cfg>(config, raw)
+        raw: InterpretedLeafFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64<E>, R>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        decode_stage1_leaf_core::<
+            Vmsa64<E>,
+            Stage1PrivilegeModel<R>,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+            R::PermissionCodec,
+        >(config, raw)
     }
 
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64, R>, AttrError> {
-        decode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(raw)
+        raw: InterpretedTableFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64<E>, R>, AttrError> {
+        decode_stage1_table_core::<Stage1PrivilegeModel<R>, R::PasModel>(raw)
     }
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2, R, G, Cfg> for Stage1
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64Lpa2<E>, R, G, Cfg> for Stage1
 where
     R: Stage1Regime<Stage = Stage1>,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig + ShareabilityConfig,
-    R::PrivilegeModel: Stage1DirectPermissionModel,
+    Stage1PrivilegeModel<R>: Stage1DirectPermissionModel,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage1PermissionEncoding<ThreeBit>, Permissions = Stage1Permissions>,
     R::PasModel: Stage1PasResolver,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64Lpa2<E>,
+            Stage1,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasLayout<Stage1, G>>::Layout,
+        >,
+    Vmsa64Lpa2<E>: HasRegimeLayout<R, G, Layout = <Vmsa64Lpa2<E> as HasLayout<Stage1, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage1,
+            R,
+            Leaf = SemanticStage1LeafAttrs<
+                Stage1Permissions,
+                <R::PasModel as Stage1PasModel>::LeafAttr,
+                SemanticVmsa64Stage1LeafControls,
+            >,
+            Table = SemanticStage1TableAttrs<
+                <Stage1PrivilegeModel<R> as PrivilegeModel>::TableRestrictions,
+                <R::PasModel as Stage1PasModel>::TableAttr,
+                SemanticVmsa64Stage1TableControls,
+            >,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
         G::encode_shareability(config, attrs.controls.shareability)?;
-        encode_stage1_leaf_core::<Vmsa64Lpa2, R::PrivilegeModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage1_leaf_core::<
+            Vmsa64Lpa2<E>,
+            Stage1PrivilegeModel<R>,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+            R::PermissionCodec,
+        >(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeTableFields<Vmsa64Lpa2, R, G>, AttrError> {
-        encode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(attrs)
+        attrs: SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
+        encode_stage1_table_core::<Stage1PrivilegeModel<R>, R::PasModel>(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2, R>, AttrError> {
-        let mut attrs = decode_stage1_leaf_core::<Vmsa64Lpa2, R::PrivilegeModel, R::PasModel, Cfg>(
-            config, raw,
-        )?;
+        raw: InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
+        require_stage1_permission_semantics::<R::DescriptorInterpretation, _>(config)?;
+        let mut attrs = decode_stage1_leaf_core::<
+            Vmsa64Lpa2<E>,
+            Stage1PrivilegeModel<R>,
+            R::PasModel,
+            Cfg,
+            R::DescriptorInterpretation,
+            R::PermissionCodec,
+        >(config, raw)?;
         G::decode_shareability(config, &mut attrs.controls.shareability)?;
         Ok(attrs)
     }
@@ -387,16 +435,16 @@ where
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2, R>, AttrError> {
-        decode_stage1_table_core::<R::PrivilegeModel, R::PasModel>(raw)
+        raw: InterpretedTableFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
+        decode_stage1_table_core::<Stage1PrivilegeModel<R>, R::PasModel>(raw)
     }
 }
 
-fn encode_stage2_leaf_core<F, P, A, C>(
+fn encode_stage2_leaf_core<F, A, C, K>(
     config: &C,
     attrs: SemanticStage2LeafAttrs<
-        Stage2Permission,
+        Stage2Permissions,
         A::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >,
@@ -404,73 +452,43 @@ fn encode_stage2_leaf_core<F, P, A, C>(
 where
     F: HasMemoryCodec<Stage2>,
     F::Codec: MemoryAttributeCodec<Stage2, C, Semantic = Stage2MemoryAttributes, Raw = FourBit>,
-    P: Stage2PermissionModel,
-    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
+    A: Stage2PasContext + Stage2PasResolver<F, C, Software = FourBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
+    K: PermissionCodec<C, Stage2PermissionEncoding<ThreeBit>, Permissions = Stage2Permissions>,
 {
     let mut software = software_four(attrs.controls.software)?;
     let _descriptor_ns = A::resolve(config, attrs.output_address_space, &mut software)?;
     let mem_attr = F::Codec::encode(config, attrs.memory)?;
     let settings = config.stage2_permissions();
-    let permissions = match settings.base {
-        Stage2BasePermissions::Direct => {
+    let permission_encoding = K::encode(config, attrs.permissions)?;
+    let permissions = match (settings.base, permission_encoding) {
+        (Stage2BasePermissions::Direct, Stage2PermissionEncoding::Direct(encoding)) => {
             let dbm = match attrs.controls.dirty {
                 DirtyControl::Direct(DirtyBitManagement::SoftwareManaged) => false,
                 DirtyControl::Direct(DirtyBitManagement::HardwareManaged) => true,
                 DirtyControl::Indirect(_) => return Err(AttrError::PermissionModeMismatch),
             };
-            if !P::XNX
-                && matches!(
-                    attrs.permissions,
-                    Stage2Permission::ReadOnly {
-                        privileged_execute,
-                        unprivileged_execute,
-                    } | Stage2Permission::ReadWrite {
-                        privileged_execute,
-                        unprivileged_execute,
-                    } if privileged_execute != unprivileged_execute
-                )
-            {
-                return Err(AttrError::InvalidStage2ExecuteNever);
+            let ap = encoding.access.bits();
+            RawVmsa64PermissionFields {
+                primary: FourBit::new(
+                    (ap & 1) | (dbm as u8) << 1 | encoding.execute_never.bits() << 2,
+                )?,
+                dirty: ap & 2 != 0,
+                overlay: ThreeBit::new(0)?,
             }
-            let mut encoding = None;
-            'permissions: for ap in 0..4 {
-                for xn in 0..4 {
-                    let Ok(base) = decode_stage2_direct_permissions(
-                        Stage2Ap::from_bits(ap)?,
-                        Stage2ExecuteNever::from_bits(xn)?,
-                        P::XNX,
-                    ) else {
-                        continue;
-                    };
-                    let po_count = if settings.s2por_el1.is_some() { 8 } else { 1 };
-                    for po in 0..po_count {
-                        if apply_stage2_overlay(base, settings.s2por_el1, po) == attrs.permissions {
-                            encoding = Some(RawVmsa64PermissionFields {
-                                primary: FourBit::new((ap & 1) | (dbm as u8) << 1 | xn << 2)?,
-                                dirty: ap & 2 != 0,
-                                overlay: ThreeBit::new(po)?,
-                            });
-                            break 'permissions;
-                        }
-                    }
-                }
-            }
-            encoding.ok_or(AttrError::UnencodablePermissions)?
         }
-        Stage2BasePermissions::Indirect(_) => {
+        (Stage2BasePermissions::Indirect(_), Stage2PermissionEncoding::Indirect(indices)) => {
             let state = match attrs.controls.dirty {
                 DirtyControl::Indirect(state) => state,
                 DirtyControl::Direct(_) => return Err(AttrError::PermissionModeMismatch),
             };
-            let indices =
-                Stage2PermissionResolver::<C, ThreeBit>::new(config).resolve(attrs.permissions)?;
             RawVmsa64PermissionFields {
                 primary: indices.pi,
                 dirty: matches!(state, DirtyState::Dirty),
                 overlay: indices.po,
             }
         }
+        _ => return Err(AttrError::PermissionModeMismatch),
     };
     Ok(RawVmsa64Stage2LeafAttrs {
         mem_attr,
@@ -482,12 +500,12 @@ where
     })
 }
 
-fn decode_stage2_leaf_core<F, P, A, C>(
+fn decode_stage2_leaf_core<F, A, C, K>(
     config: &C,
     raw: RawVmsa64Stage2LeafAttrs,
 ) -> Result<
     SemanticStage2LeafAttrs<
-        Stage2Permission,
+        Stage2Permissions,
         A::OutputAddressSpaceAttr,
         SemanticVmsa64Stage2LeafControls,
     >,
@@ -496,23 +514,22 @@ fn decode_stage2_leaf_core<F, P, A, C>(
 where
     F: HasMemoryCodec<Stage2>,
     F::Codec: MemoryAttributeCodec<Stage2, C, Semantic = Stage2MemoryAttributes, Raw = FourBit>,
-    P: Stage2PermissionModel,
-    A: Stage2PasContext + Stage2PasResolver<Vmsa64, C, Software = FourBit>,
+    A: Stage2PasContext + Stage2PasResolver<F, C, Software = FourBit>,
     C: Stage2MemoryConfig + Stage2PermissionConfig,
+    K: PermissionCodec<C, Stage2PermissionEncoding<ThreeBit>, Permissions = Stage2Permissions>,
 {
     let mut software = raw.software;
     let output_address_space = A::decode(config, false, &mut software)?;
     let settings = config.stage2_permissions();
-    let (permissions, dirty) = match settings.base {
+    let (encoding, dirty) = match settings.base {
         Stage2BasePermissions::Direct => {
             let bits = raw.permissions.primary.bits();
-            let base = decode_stage2_direct_permissions(
-                Stage2Ap::from_bits((bits & 1) | (raw.permissions.dirty as u8) << 1)?,
-                Stage2ExecuteNever::from_bits((bits >> 2) & 3)?,
-                P::XNX,
-            )?;
+            let encoding = Stage2DirectEncoding {
+                access: Stage2Ap::from_bits((bits & 1) | (raw.permissions.dirty as u8) << 1)?,
+                execute_never: Stage2ExecuteNever::from_bits((bits >> 2) & 3)?,
+            };
             (
-                apply_stage2_overlay(base, settings.s2por_el1, raw.permissions.overlay.bits()),
+                Stage2PermissionEncoding::Direct(encoding),
                 DirtyControl::Direct(if bits & 2 != 0 {
                     DirtyBitManagement::HardwareManaged
                 } else {
@@ -521,10 +538,10 @@ where
             )
         }
         Stage2BasePermissions::Indirect(_) => (
-            Stage2PermissionResolver::<C, ThreeBit>::new(config).decode(PermissionIndices {
+            Stage2PermissionEncoding::Indirect(PermissionIndices {
                 pi: raw.permissions.primary,
                 po: raw.permissions.overlay,
-            })?,
+            }),
             DirtyControl::Indirect(if raw.permissions.dirty {
                 DirtyState::Dirty
             } else {
@@ -532,6 +549,7 @@ where
             }),
         ),
     };
+    let permissions = K::decode(config, encoding)?;
     Ok(SemanticStage2LeafAttrs {
         memory: F::Codec::decode(config, raw.mem_attr)?,
         permissions,
@@ -564,78 +582,119 @@ fn decode_stage2_table_core(
     })
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64, R, G, Cfg> for Stage2
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64<E>, R, G, Cfg> for Stage2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig,
-    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64, Cfg, Software = FourBit>,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage2PermissionEncoding<ThreeBit>, Permissions = Stage2Permissions>,
+    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64<E>, Cfg, Software = FourBit>,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64<E>,
+            Stage2,
+            G,
+            Layout = <Vmsa64<E> as HasLayout<Stage2, G>>::Layout,
+        >,
+    Vmsa64<E>: HasRegimeLayout<R, G, Layout = <Vmsa64<E> as HasLayout<Stage2, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage2,
+            R,
+            Leaf = SemanticStage2LeafAttrs<
+                Stage2Permissions,
+                <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
+                SemanticVmsa64Stage2LeafControls,
+            >,
+            Table = SemanticVmsa64Stage2TableAttrs,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64, R, G>, AttrError> {
-        encode_stage2_leaf_core::<Vmsa64, R::PermissionModel, R::PasModel, Cfg>(config, attrs)
+        attrs: SemanticLeafAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64<E>, R, G>, AttrError> {
+        encode_stage2_leaf_core::<Vmsa64<E>, R::PasModel, Cfg, R::PermissionCodec>(config, attrs)
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64, R>,
-    ) -> Result<RegimeTableFields<Vmsa64, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64<E>, R, G>, AttrError> {
         encode_stage2_table_core(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64, R>, AttrError> {
-        decode_stage2_leaf_core::<Vmsa64, R::PermissionModel, R::PasModel, Cfg>(config, raw)
+        raw: InterpretedLeafFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64<E>, R>, AttrError> {
+        decode_stage2_leaf_core::<Vmsa64<E>, R::PasModel, Cfg, R::PermissionCodec>(config, raw)
     }
 
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64<E>, R>, AttrError> {
         decode_stage2_table_core(raw)
     }
 }
 
-impl<R, G, Cfg> AttributeCodecCell<Vmsa64Lpa2, R, G, Cfg> for Stage2
+impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64Lpa2<E>, R, G, Cfg> for Stage2
 where
     R: Stage2Regime<Stage = Stage2>,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig + ShareabilityConfig,
-    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64, Cfg, Software = FourBit>,
+    R::PermissionCodec:
+        PermissionCodec<Cfg, Stage2PermissionEncoding<ThreeBit>, Permissions = Stage2Permissions>,
+    R::PasModel: Stage2PasContext + Stage2PasResolver<Vmsa64Lpa2<E>, Cfg, Software = FourBit>,
+    R::DescriptorInterpretation: InterpretsDescriptors<
+            Vmsa64Lpa2<E>,
+            Stage2,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasLayout<Stage2, G>>::Layout,
+        >,
+    Vmsa64Lpa2<E>: HasRegimeLayout<R, G, Layout = <Vmsa64Lpa2<E> as HasLayout<Stage2, G>>::Layout>
+        + SemanticAttributeTypes<
+            Stage2,
+            R,
+            Leaf = SemanticStage2LeafAttrs<
+                Stage2Permissions,
+                <R::PasModel as Stage2PasContext>::OutputAddressSpaceAttr,
+                SemanticVmsa64Stage2LeafControls,
+            >,
+            Table = SemanticVmsa64Stage2TableAttrs,
+        >,
 {
     fn encode_leaf(
         config: &Cfg,
         _: Level,
-        attrs: SemanticLeafAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeLeafFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         G::encode_shareability(config, attrs.controls.shareability)?;
-        encode_stage2_leaf_core::<Vmsa64Lpa2, R::PermissionModel, R::PasModel, Cfg>(config, attrs)
+        encode_stage2_leaf_core::<Vmsa64Lpa2<E>, R::PasModel, Cfg, R::PermissionCodec>(
+            config, attrs,
+        )
     }
 
     fn encode_table(
         _: &Cfg,
         _: Level,
-        attrs: SemanticTableAttrs<Vmsa64Lpa2, R>,
-    ) -> Result<RegimeTableFields<Vmsa64Lpa2, R, G>, AttrError> {
+        attrs: SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+    ) -> Result<InterpretedTableFields<Vmsa64Lpa2<E>, R, G>, AttrError> {
         encode_stage2_table_core(attrs)
     }
 
     fn decode_leaf(
         config: &Cfg,
         _: Level,
-        raw: RegimeLeafFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2, R>, AttrError> {
-        let mut attrs = decode_stage2_leaf_core::<Vmsa64Lpa2, R::PermissionModel, R::PasModel, Cfg>(
-            config, raw,
-        )?;
+        raw: InterpretedLeafFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticLeafAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
+        let mut attrs =
+            decode_stage2_leaf_core::<Vmsa64Lpa2<E>, R::PasModel, Cfg, R::PermissionCodec>(
+                config, raw,
+            )?;
         G::decode_shareability(config, &mut attrs.controls.shareability)?;
         Ok(attrs)
     }
@@ -643,8 +702,8 @@ where
     fn decode_table(
         _: &Cfg,
         _: Level,
-        raw: RegimeTableFields<Vmsa64Lpa2, R, G>,
-    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2, R>, AttrError> {
+        raw: InterpretedTableFields<Vmsa64Lpa2<E>, R, G>,
+    ) -> Result<SemanticTableAttrs<Vmsa64Lpa2<E>, R>, AttrError> {
         decode_stage2_table_core(raw)
     }
 }
@@ -654,5 +713,22 @@ fn software_four(metadata: SoftwareMetadata) -> Result<FourBit, AttrError> {
         Err(AttrError::RawFieldOutOfRange)
     } else {
         FourBit::new(metadata.value() as u8)
+    }
+}
+
+fn require_stage1_permission_semantics<I, C>(config: &C) -> Result<(), AttrError>
+where
+    I: DescriptorInterpretation,
+    C: Stage1PermissionConfig,
+{
+    let settings = config.stage1_permissions();
+    if (!I::SUPPORTS_STAGE1_PERMISSION_INDIRECTION
+        && !matches!(settings.base, super::Stage1BasePermissions::Direct))
+        || (!I::SUPPORTS_STAGE1_PERMISSION_OVERLAYS
+            && (settings.overlays.privileged.is_some() || settings.overlays.unprivileged.is_some()))
+    {
+        Err(AttrError::PermissionModeMismatch)
+    } else {
+        Ok(())
     }
 }

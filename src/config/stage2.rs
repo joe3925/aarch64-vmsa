@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2Permissions;
+pub struct StandardStage2PermissionModel;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Stage2XnxPermissions;
+pub struct XnxStage2PermissionModel;

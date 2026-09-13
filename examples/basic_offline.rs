@@ -3,11 +3,11 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use aarch64_vmsa::attrs::{
-    AllocationHints, CachePolicy, Cacheability, DataAccess, DirtyBitManagement, DirtyControl,
-    MemoryAttributes, MemoryTransience, SemanticLeafAttrs, SemanticTableAttrs,
-    SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls, Shareability,
-    SoftwareMetadata, Stage1EffectivePermissions, Stage1MemoryConfig, Stage1PermissionConfig,
-    TwoPrivilegeTablePermissionLimits,
+    AllocationHints, CachePolicy, Cacheability, DataRights, DirtyBitManagement, DirtyControl,
+    ExecuteRights, MemoryAttributes, MemoryTransience, PrivilegePair, SemanticLeafAttrs,
+    SemanticTableAttrs, SemanticVmsa64Stage1LeafControls, SemanticVmsa64Stage1TableControls,
+    Shareability, SoftwareMetadata, Stage1MemoryConfig, Stage1PermissionConfig, Stage1Permissions,
+    TwoPrivilegeTableRestrictions,
 };
 use aarch64_vmsa::config::format::Vmsa64;
 use aarch64_vmsa::config::granule::Granule4KiB;
@@ -124,13 +124,16 @@ fn main() {
             inner: write_back,
             outer: write_back,
         },
-        permissions: Stage1EffectivePermissions {
-            privileged_data: DataAccess::ReadWrite,
-            unprivileged_data: DataAccess::None,
-            privileged_execute: false,
-            unprivileged_execute: false,
-            privileged_gcs: false,
-            unprivileged_gcs: false,
+        permissions: Stage1Permissions {
+            data: PrivilegePair {
+                privileged: DataRights::ReadWrite,
+                unprivileged: DataRights::None,
+            },
+            execute: ExecuteRights::Neither,
+            gcs: PrivilegePair {
+                privileged: false,
+                unprivileged: false,
+            },
         },
         pas: (),
         controls: SemanticVmsa64Stage1LeafControls {
@@ -145,9 +148,9 @@ fn main() {
     };
 
     let table_attrs = SemanticTableAttrs::<Vmsa64, NonSecureEl1Stage1> {
-        permission_limits: TwoPrivilegeTablePermissionLimits {
-            privileged_data_limit: DataAccess::ReadWrite,
-            unprivileged_data_limit: DataAccess::ReadWrite,
+        restrictions: TwoPrivilegeTableRestrictions {
+            privileged_data_limit: DataRights::ReadWrite,
+            unprivileged_data_limit: DataRights::ReadWrite,
             privileged_execute_limit: true,
             unprivileged_execute_limit: true,
         },

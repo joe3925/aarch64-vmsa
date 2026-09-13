@@ -6,7 +6,7 @@ use crate::attrs::{
     RawVmsa128Stage1TableAttrs, RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs,
     Stage1NotDirty, Stage2Dirty, TenBit,
 };
-use crate::config::format::Vmsa128;
+use crate::config::format::{DescriptorEndian, Vmsa128};
 use crate::descriptor::layout::vmsa128 as b;
 use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
@@ -17,19 +17,21 @@ use super::{
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Vmsa128Layout<S, G>(PhantomData<(S, G)>);
+pub struct Vmsa128Layout<E, S, G>(PhantomData<(E, S, G)>);
 
-impl<S, G> super::private::LayoutSealed for Vmsa128Layout<S, G> {}
+impl<E, S, G> super::private::LayoutSealed for Vmsa128Layout<E, S, G> {}
 
-impl<G: TranslationGranule> HasLayout<Stage1, G> for Vmsa128 {
-    type Layout = Vmsa128Layout<Stage1, G>;
+impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage1, G> for Vmsa128<E> {
+    type Layout = Vmsa128Layout<E, Stage1, G>;
 }
-impl<G: TranslationGranule> HasLayout<Stage2, G> for Vmsa128 {
-    type Layout = Vmsa128Layout<Stage2, G>;
+impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage2, G> for Vmsa128<E> {
+    type Layout = Vmsa128Layout<E, Stage2, G>;
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1, G> {
-    type Format = Vmsa128;
+impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
+    for Vmsa128Layout<E, Stage1, G>
+{
+    type Format = Vmsa128<E>;
     type LeafFields = RawVmsa128Stage1LeafAttrs;
     type TableFields = RawVmsa128Stage1TableAttrs;
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
@@ -80,6 +82,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
         f: Self::LeafFields,
     ) -> Result<u128, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         if f.bbm_nt && leaf_skl(level) == 0 {
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
@@ -107,10 +110,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
     }
     fn table_descriptor(
         table_addr: TableAddr<G>,
-        transition: TableTransition<Vmsa128, G>,
+        transition: TableTransition<Vmsa128<E>, G>,
         f: Self::TableFields,
     ) -> Result<u128, DescriptorError> {
-        let skl = transition_skl::<G>(transition)?;
+        let skl = transition_skl::<E, G>(transition)?;
         if f.table_nt && skl == 0 {
             return Err(DescriptorError::ReservedFieldSet { bit: 6 });
         }
@@ -136,13 +139,15 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa128Layout<Stage1
             stride_count: raw_skl(raw) + 1,
         })
     }
-    fn supports_table_transition(t: TableTransition<Vmsa128, G>) -> bool {
-        transition_skl::<G>(t).is_ok()
+    fn supports_table_transition(t: TableTransition<Vmsa128<E>, G>) -> bool {
+        transition_skl::<E, G>(t).is_ok()
     }
 }
 
-impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2, G> {
-    type Format = Vmsa128;
+impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
+    for Vmsa128Layout<E, Stage2, G>
+{
+    type Format = Vmsa128<E>;
     type LeafFields = RawVmsa128Stage2LeafAttrs;
     type TableFields = RawVmsa128Stage2TableAttrs;
     const REQUIRED_FEATURES: crate::arch::FeatureRequirements =
@@ -169,7 +174,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             dirty: Stage2Dirty::new(b::D128_STAGE2_DIRTY.extract(raw) != 0),
             shareability: RawShareability::from_masked(b::D128_SHAREABILITY.extract(raw)),
             access_flag: b::D128_ACCESS_FLAG.extract(raw) != 0,
-            force_no_execute: b::D128_LEAF_ALIAS.extract(raw) != 0,
+            force_no_xs: b::D128_LEAF_ALIAS.extract(raw) != 0,
             contiguous: b::D128_CONTIGUOUS.extract(raw) != 0,
             assured_only: b::D128_PROTECTED_OR_ASSURED_ONLY.extract(raw) != 0,
             permissions: PermissionIndices {
@@ -193,6 +198,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
         f: Self::LeafFields,
     ) -> Result<u128, DescriptorError> {
         require_leaf_level::<G>(level)?;
+        require_contiguous::<G>(level, f.contiguous)?;
         if f.bbm_nt && leaf_skl(level) == 0 {
             return Err(DescriptorError::InvalidNtBbmCombination { level });
         }
@@ -204,7 +210,7 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             f.bbm_nt,
             f.shareability,
             f.access_flag,
-            f.force_no_execute,
+            f.force_no_xs,
             level,
             f.contiguous,
             f.assured_only,
@@ -219,10 +225,10 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
     }
     fn table_descriptor(
         table_addr: TableAddr<G>,
-        transition: TableTransition<Vmsa128, G>,
+        transition: TableTransition<Vmsa128<E>, G>,
         f: Self::TableFields,
     ) -> Result<u128, DescriptorError> {
-        let skl = transition_skl::<G>(transition)?;
+        let skl = transition_skl::<E, G>(transition)?;
         if f.table_nt && skl == 0 {
             return Err(DescriptorError::ReservedFieldSet { bit: 6 });
         }
@@ -249,8 +255,8 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa128Layout<Stage2
             stride_count: raw_skl(raw) + 1,
         })
     }
-    fn supports_table_transition(t: TableTransition<Vmsa128, G>) -> bool {
-        transition_skl::<G>(t).is_ok()
+    fn supports_table_transition(t: TableTransition<Vmsa128<E>, G>) -> bool {
+        transition_skl::<E, G>(t).is_ok()
     }
 }
 
@@ -303,6 +309,22 @@ pub(super) fn supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
     (0..=3).contains(&skip) && skl_supported(granule, skip as u8)
 }
 
+fn require_contiguous<G: TranslationGranule>(
+    level: Level,
+    contiguous: bool,
+) -> Result<(), DescriptorError> {
+    if contiguous
+        && matches!(
+            (G::KIND, level.as_i8()),
+            (GranuleKind::Size4KiB, 0) | (GranuleKind::Size64KiB, 1)
+        )
+    {
+        Err(DescriptorError::ReservedFieldSet { bit: 111 })
+    } else {
+        Ok(())
+    }
+}
+
 pub(crate) fn skl_supported(granule: GranuleKind, skl: u8) -> bool {
     !matches!(
         (granule, skl),
@@ -316,8 +338,8 @@ fn leaf_skl(level: Level) -> u8 {
     skip as u8
 }
 
-fn transition_skl<G: TranslationGranule>(
-    t: TableTransition<Vmsa128, G>,
+fn transition_skl<E: DescriptorEndian, G: TranslationGranule>(
+    t: TableTransition<Vmsa128<E>, G>,
 ) -> Result<u8, DescriptorError> {
     let step = t.level_step();
     if step != 0 && t.child().stride_count().raw() == step && skl_supported(G::KIND, step - 1) {

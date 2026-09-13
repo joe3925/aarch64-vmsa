@@ -12,19 +12,24 @@ pub(crate) use pas::{
 };
 pub use pas::{RealmOrNonSecurePa, RootExtendedPa, SecureSelectablePa};
 pub use permissions::{
-    DataAccess, MostlyReadOnly, SinglePrivilegeTablePermissionLimits, Stage1EffectivePermissions,
-    Stage2Permission, TwoPrivilegeTablePermissionLimits,
+    DataRights, ExecuteRights, PrivilegePair, SinglePrivilegeTableRestrictions, Stage1Permissions,
+    Stage2Permissions, TableAccessPermissions, TopLevelRequirements, TwoPrivilegeTableRestrictions,
 };
 pub(crate) use permissions::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, PrivilegeModel,
-    Stage2PermissionModel,
+    SmmuPrivilegedStreamPermissions, SmmuStreamPermissions, Stage2PermissionModel,
 };
 pub(crate) use raw::*;
 pub use resolve::{
-    AttributeCodec, D128AliasConfig, LiveVmsaConfig, PasConfig, ShareabilityConfig,
-    Stage1BasePermissions, Stage1MemoryConfig, Stage1PermissionConfig, Stage1PermissionOverlays,
-    Stage1PermissionRegisters, Stage1PermissionSettings, Stage2BasePermissions, Stage2MemoryConfig,
-    Stage2MemoryMode, Stage2PermissionConfig, Stage2PermissionRegisters, Stage2PermissionSettings,
+    AttributeCodec, D128AliasConfig, LiveVmsaConfig, PasConfig, PeStage1PermissionCodec,
+    PeStage2PermissionCodec, PermissionCodec, RawStage1DirectLeafPermissions, ShareabilityConfig,
+    SmmuV2Stage1PermissionCodec, SmmuV2Stage2PermissionCodec, SmmuV3Stage1PermissionCodec,
+    SmmuV3Stage2PermissionCodec, Stage1BasePermissions, Stage1DirectEncoding, Stage1MemoryConfig,
+    Stage1PermissionCodec, Stage1PermissionConfig, Stage1PermissionEncoding,
+    Stage1PermissionOverlays, Stage1PermissionRegisters, Stage1PermissionSettings,
+    Stage2BasePermissions, Stage2DirectEncoding, Stage2MemoryConfig, Stage2MemoryMode,
+    Stage2PermissionCodec, Stage2PermissionConfig, Stage2PermissionEncoding,
+    Stage2PermissionRegisters, Stage2PermissionSettings,
 };
 pub use schema::{SemanticAttributeTypes, SemanticLeafAttrs, SemanticTableAttrs};
 pub use semantic::*;
@@ -53,5 +58,6 @@ pub enum AttrError {
     PermissionModeMismatch,
     InvalidD128Alias,
     InvalidD128Configuration,
+    InvalidSmmuV2AllocationHint,
     ConflictingSemanticAttributes,
 }

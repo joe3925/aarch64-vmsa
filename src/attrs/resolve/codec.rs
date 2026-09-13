@@ -1,53 +1,17 @@
 use crate::address::{Level, TranslationGranule};
 use crate::attrs::{AttrError, SemanticAttributeTypes, SemanticLeafAttrs, SemanticTableAttrs};
-use crate::descriptor::{DescriptorFormat, HasLayout};
-use crate::regime::{RegimeLeafFields, RegimeTableFields, TranslationRegime};
+use crate::descriptor::DescriptorFormat;
+use crate::regime::{
+    HasRegimeLayout, InterpretedLeafFields, InterpretedTableFields, TranslationRegime,
+};
 use crate::translation::TranslationStage;
 
-use super::{HasMemoryCodec, MemoryAttributeCodec};
-
-/// This trait converts between semantic attributes and the raw fields that a format and regime
-/// select.
-pub trait AttributeCodec<R, G, Cfg>:
-    DescriptorFormat
-    + HasLayout<<R as TranslationRegime>::Stage, G>
-    + SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>
+/// Converts between semantic attributes and the raw fields selected by a format and regime.
+/// Implemented on [`Stage1`](crate::translation::Stage1) and
+/// [`Stage2`](crate::translation::Stage2) to keep stage dispatch coherent.
+pub trait AttributeCodec<F, R, G, Cfg>: TranslationStage
 where
-    R: TranslationRegime,
-    G: TranslationGranule,
-{
-    fn encode_leaf(
-        config: &Cfg,
-        level: Level,
-        attrs: SemanticLeafAttrs<Self, R>,
-    ) -> Result<RegimeLeafFields<Self, R, G>, AttrError>;
-
-    fn encode_table(
-        config: &Cfg,
-        level: Level,
-        attrs: SemanticTableAttrs<Self, R>,
-    ) -> Result<RegimeTableFields<Self, R, G>, AttrError>;
-
-    fn decode_leaf(
-        config: &Cfg,
-        level: Level,
-        raw: RegimeLeafFields<Self, R, G>,
-    ) -> Result<SemanticLeafAttrs<Self, R>, AttrError>;
-
-    fn decode_table(
-        config: &Cfg,
-        level: Level,
-        raw: RegimeTableFields<Self, R, G>,
-    ) -> Result<SemanticTableAttrs<Self, R>, AttrError>;
-}
-
-pub(super) trait AttributeCodecCell<F, R, G, Cfg>: TranslationStage
-where
-    F: DescriptorFormat
-        + HasLayout<Self, G>
-        + HasMemoryCodec<Self>
-        + SemanticAttributeTypes<Self, R>,
-    F::Codec: MemoryAttributeCodec<Self, Cfg>,
+    F: DescriptorFormat + HasRegimeLayout<R, G> + SemanticAttributeTypes<Self, R>,
     R: TranslationRegime<Stage = Self>,
     G: TranslationGranule,
 {
@@ -55,67 +19,23 @@ where
         config: &Cfg,
         level: Level,
         attrs: SemanticLeafAttrs<F, R>,
-    ) -> Result<RegimeLeafFields<F, R, G>, AttrError>;
+    ) -> Result<InterpretedLeafFields<F, R, G>, AttrError>;
 
     fn encode_table(
         config: &Cfg,
         level: Level,
         attrs: SemanticTableAttrs<F, R>,
-    ) -> Result<RegimeTableFields<F, R, G>, AttrError>;
+    ) -> Result<InterpretedTableFields<F, R, G>, AttrError>;
 
     fn decode_leaf(
         config: &Cfg,
         level: Level,
-        raw: RegimeLeafFields<F, R, G>,
+        raw: InterpretedLeafFields<F, R, G>,
     ) -> Result<SemanticLeafAttrs<F, R>, AttrError>;
 
     fn decode_table(
         config: &Cfg,
         level: Level,
-        raw: RegimeTableFields<F, R, G>,
+        raw: InterpretedTableFields<F, R, G>,
     ) -> Result<SemanticTableAttrs<F, R>, AttrError>;
-}
-
-impl<F, R, G, Cfg> AttributeCodec<R, G, Cfg> for F
-where
-    F: DescriptorFormat
-        + HasLayout<<R as TranslationRegime>::Stage, G>
-        + HasMemoryCodec<<R as TranslationRegime>::Stage>
-        + SemanticAttributeTypes<<R as TranslationRegime>::Stage, R>,
-    F::Codec: MemoryAttributeCodec<<R as TranslationRegime>::Stage, Cfg>,
-    R: TranslationRegime,
-    G: TranslationGranule,
-    R::Stage: AttributeCodecCell<F, R, G, Cfg>,
-{
-    fn encode_leaf(
-        config: &Cfg,
-        level: Level,
-        attrs: SemanticLeafAttrs<Self, R>,
-    ) -> Result<RegimeLeafFields<Self, R, G>, AttrError> {
-        <R::Stage as AttributeCodecCell<F, R, G, Cfg>>::encode_leaf(config, level, attrs)
-    }
-
-    fn encode_table(
-        config: &Cfg,
-        level: Level,
-        attrs: SemanticTableAttrs<Self, R>,
-    ) -> Result<RegimeTableFields<Self, R, G>, AttrError> {
-        <R::Stage as AttributeCodecCell<F, R, G, Cfg>>::encode_table(config, level, attrs)
-    }
-
-    fn decode_leaf(
-        config: &Cfg,
-        level: Level,
-        raw: RegimeLeafFields<Self, R, G>,
-    ) -> Result<SemanticLeafAttrs<Self, R>, AttrError> {
-        <R::Stage as AttributeCodecCell<F, R, G, Cfg>>::decode_leaf(config, level, raw)
-    }
-
-    fn decode_table(
-        config: &Cfg,
-        level: Level,
-        raw: RegimeTableFields<Self, R, G>,
-    ) -> Result<SemanticTableAttrs<Self, R>, AttrError> {
-        <R::Stage as AttributeCodecCell<F, R, G, Cfg>>::decode_table(config, level, raw)
-    }
 }

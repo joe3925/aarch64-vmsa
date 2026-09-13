@@ -1,0 +1,267 @@
+diff --git a/src/address/granule.rs b/src/address/granule.rs
+index e6f4d7e..230a508 100644
+--- a/src/address/granule.rs
++++ b/src/address/granule.rs
+@@ -194,6 +194,3 @@ impl TranslationGranule for Granule64KiB {
+     const SHIFT: u8 = 16;
+ }
+ 
+-pub const fn div_ceil_u8(value: u8, divisor: u8) -> u8 {
+-    value / divisor + ((value % divisor) != 0) as u8
+-}
+diff --git a/src/arch/features.rs b/src/arch/features.rs
+index 41f3963..ae8ea21 100644
+--- a/src/arch/features.rs
++++ b/src/arch/features.rs
+@@ -341,6 +341,9 @@ const fn merge_derived(primary: FeatureStatus, derived: FeatureStatus) -> Featur
+ 
+ #[cfg(target_arch = "aarch64")]
+ impl IdRegisterSnapshot {
++    /// Reads the ID registers of the current PE.
++    ///
++    /// Must be called at EL1 or above. `MRS` of these registers traps at EL0.
+     pub fn current() -> Self {
+         Self {
+             id_aa64pfr0_el1: read_id_aa64pfr0_el1(),
+diff --git a/src/descriptor/format/mod.rs b/src/descriptor/format/mod.rs
+index edc2e9d..3bc580e 100644
+--- a/src/descriptor/format/mod.rs
++++ b/src/descriptor/format/mod.rs
+@@ -13,7 +13,7 @@ use portable_atomic::{AtomicU128, Ordering};
+ use crate::address::{Level, PhysAddr, TranslationGranule};
+ use crate::arch::{Capability, FeatureRequirements};
+ use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+-use crate::table::{TableAddr, TableTransition};
++use crate::table::{TableAddr, TableGeometry, TableTransition};
+ use crate::translation::TranslationStage;
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -121,11 +121,10 @@ where
+     ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
+     fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
+ 
+-    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G> {
+-        let raw = Self::output_address(raw, level).0;
+-        // SAFETY: Descriptor address fields have no granule-offset bits.
+-        unsafe { TableAddr::new_unchecked(raw) }
+-    }
++    /// Every layout must override this. Routing through `output_address` is wrong once
++    /// that function normalises for the *leaf* level: a table descriptor at L1 would be
++    /// aligned to the L1 block size and lose real address bits.
++    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G>;
+ 
+     fn next_table(
+         raw: <Self::Format as DescriptorFormat>::Raw,
+@@ -308,6 +307,23 @@ where
+     }
+ }
+ 
++/// Clears the offset bits that a leaf at `level` does not use.
++///
++/// The low bits of a block descriptor output address are RES0; hardware treats them as
++/// zero, so decoding must do the same. Without this, `resolve_output` computes
++/// `base + offset` from a base that still carries those bits and returns a PA the
++/// hardware would never produce.
++pub(crate) fn align_output<F, G>(address: u64, level: Level) -> u64
++where
++    F: DescriptorFormat,
++    G: TranslationGranule,
++{
++    match TableGeometry::<F, G>::checked_level_shift(level) {
++        Some(shift) if shift < u64::BITS as u8 => address & !((1u64 << shift) - 1),
++        _ => address,
++    }
++}
++
+ pub(crate) const fn insert_address(raw: u128, address: u64, mask: u128) -> u128 {
+     (raw & !mask) | (address as u128 & mask)
+ }
+diff --git a/src/descriptor/format/vmsa64.rs b/src/descriptor/format/vmsa64.rs
+index a107d9f..4c68c6c 100644
+--- a/src/descriptor/format/vmsa64.rs
++++ b/src/descriptor/format/vmsa64.rs
+@@ -15,7 +15,7 @@ use super::vmsa64_family::{
+     finish_stage1_leaf, finish_stage2_leaf, finish_table,
+ };
+ use super::{
+-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, insert_address,
++    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, align_output, insert_address,
+     require_step_by_one_transition,
+ };
+ 
+@@ -109,8 +109,18 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Layout<Stage1,
+         Ok(raw as u64)
+     }
+ 
+-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
+-        PhysAddr((raw as u128 & Self::ADDRESS_FIELD_MASK) as u64)
++    fn output_address(raw: u64, level: Level) -> PhysAddr {
++        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64;
++        PhysAddr(align_output::<Vmsa64, G>(address, level))
++    }
++
++    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
++        // Bits below the granule shift are RES0 in a table descriptor. They are NOT
++        // always zero for 16KiB/64KiB granules, so they must be masked here rather
++        // than assumed away.
++        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !(G::SIZE - 1);
++        // SAFETY: the mask above clears every granule-offset bit.
++        unsafe { TableAddr::new_unchecked(address) }
+     }
+ }
+ 
+@@ -173,8 +183,18 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Layout<Stage2,
+         )?;
+         Ok(raw as u64)
+     }
+-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
+-        PhysAddr((raw as u128 & Self::ADDRESS_FIELD_MASK) as u64)
++    fn output_address(raw: u64, level: Level) -> PhysAddr {
++        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64;
++        PhysAddr(align_output::<Vmsa64, G>(address, level))
++    }
++
++    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
++        // Bits below the granule shift are RES0 in a table descriptor. They are NOT
++        // always zero for 16KiB/64KiB granules, so they must be masked here rather
++        // than assumed away.
++        let address = (raw as u128 & Self::ADDRESS_FIELD_MASK) as u64 & !(G::SIZE - 1);
++        // SAFETY: the mask above clears every granule-offset bit.
++        unsafe { TableAddr::new_unchecked(address) }
+     }
+ }
+ 
+diff --git a/src/descriptor/format/vmsa64_lpa2.rs b/src/descriptor/format/vmsa64_lpa2.rs
+index 621a471..430f7c4 100644
+--- a/src/descriptor/format/vmsa64_lpa2.rs
++++ b/src/descriptor/format/vmsa64_lpa2.rs
+@@ -15,7 +15,8 @@ use super::vmsa64_family::{
+     finish_stage1_leaf, finish_stage2_leaf, finish_table,
+ };
+ use super::{
+-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, require_step_by_one_transition,
++    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, align_output,
++    require_step_by_one_transition,
+ };
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+@@ -116,8 +117,16 @@ impl<G: TranslationGranule> DescriptorLayout<Stage1, G> for Vmsa64Lpa2Layout<Sta
+         check_reserved(raw, table_res0(G::KIND, true), b::stage1_table::RES1_MASK)?;
+         Ok(raw as u64)
+     }
+-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
+-        PhysAddr(decode_address::<G>(raw))
++    fn output_address(raw: u64, level: Level) -> PhysAddr {
++        PhysAddr(align_output::<Vmsa64Lpa2, G>(decode_address::<G>(raw), level))
++    }
++
++    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
++        // Granule-offset bits are RES0 in a table descriptor and are not guaranteed
++        // clear on 16KiB granules under the DS encoding.
++        let address = decode_address::<G>(raw) & !(G::SIZE - 1);
++        // SAFETY: the mask above clears every granule-offset bit.
++        unsafe { TableAddr::new_unchecked(address) }
+     }
+ }
+ 
+@@ -188,8 +197,16 @@ impl<G: TranslationGranule> DescriptorLayout<Stage2, G> for Vmsa64Lpa2Layout<Sta
+         check_reserved(raw, table_res0(G::KIND, false), b::stage2_table::RES1_MASK)?;
+         Ok(raw as u64)
+     }
+-    fn output_address(raw: u64, _level: Level) -> PhysAddr {
+-        PhysAddr(decode_address::<G>(raw))
++    fn output_address(raw: u64, level: Level) -> PhysAddr {
++        PhysAddr(align_output::<Vmsa64Lpa2, G>(decode_address::<G>(raw), level))
++    }
++
++    fn table_address(raw: u64, _level: Level) -> TableAddr<G> {
++        // Granule-offset bits are RES0 in a table descriptor and are not guaranteed
++        // clear on 16KiB granules under the DS encoding.
++        let address = decode_address::<G>(raw) & !(G::SIZE - 1);
++        // SAFETY: the mask above clears every granule-offset bit.
++        unsafe { TableAddr::new_unchecked(address) }
+     }
+ }
+ 
+diff --git a/src/mapper/mod.rs b/src/mapper/mod.rs
+index a1a8677..e7c9a50 100644
+--- a/src/mapper/mod.rs
++++ b/src/mapper/mod.rs
+@@ -156,6 +156,12 @@ where
+ 
+     /// This function adds a mapping to an invalid entry.
+     ///
++    /// This function is safe even though it can install a writable mapping to any
++    /// output address: the unsafety is discharged when the caller builds the
++    /// [`TableAccessMut`] implementation, which is an unsafe trait. Contrast
++    /// [`Self::unmap`], which is unsafe because removing a live translation can
++    /// invalidate references the caller already holds.
++    ///
+     /// This function does not make access to the mapped address safe.
+     /// If this function returns an error after it adds intermediate table descriptors, the
+     /// empty tables stay allocated.
+diff --git a/src/table/access.rs b/src/table/access.rs
+index 9c45b05..39f52d9 100644
+--- a/src/table/access.rs
++++ b/src/table/access.rs
+@@ -450,8 +450,10 @@ where
+             let level_step = self.level_step(cursor)?;
+             let index_stride_count = self.index_stride_count(cursor)?;
+             parent = Level::new(parent.as_i8() + level_step as i8);
+-            bit_offset =
+-                bit_offset.checked_add(TableGeometry::<F, G>::index_bits() * index_stride_count)?;
++            bit_offset = bit_offset.checked_add(
++                TableGeometry::<F, G>::index_bits()
++                    .checked_mul(index_stride_count)?,
++            )?;
+         }
+ 
+         let index_stride_count = self.index_stride_count(depth)?;
+@@ -478,8 +480,10 @@ where
+         let mut bit_offset = 0u8;
+         for cursor in 0..depth {
+             let index_stride_count = self.index_stride_count(cursor)?;
+-            bit_offset =
+-                bit_offset.checked_add(TableGeometry::<F, G>::index_bits() * index_stride_count)?;
++            bit_offset = bit_offset.checked_add(
++                TableGeometry::<F, G>::index_bits()
++                    .checked_mul(index_stride_count)?,
++            )?;
+         }
+ 
+         let index_stride_count = self.index_stride_count(depth)?;
+diff --git a/src/table/geometry.rs b/src/table/geometry.rs
+index 51b8190..c9c795b 100644
+--- a/src/table/geometry.rs
++++ b/src/table/geometry.rs
+@@ -52,11 +52,12 @@ where
+         }
+ 
+         let bits = G::SHIFT as u16 + Self::index_bits() as u16 * (delta as u16 + 1);
+-        Some(if bits > u64::BITS as u16 {
+-            u64::BITS as u8
+-        } else {
+-            bits as u8
+-        })
++        if bits > u64::BITS as u16 {
++            // An unrepresentable input width is not a valid root, and must not be
++            // reported as a 64-bit root: that made impossible levels look usable.
++            return None;
++        }
++        Some(bits as u8)
+     }
+ 
+     pub const fn entries() -> usize {
+diff --git a/src/table/root.rs b/src/table/root.rs
+index 3865768..a5d0343 100644
+--- a/src/table/root.rs
++++ b/src/table/root.rs
+@@ -76,7 +76,7 @@ where
+                 maximum: F::OUTPUT_ADDRESS_BITS,
+             });
+         }
+-        if output_addr_bits < 64 && addr.raw() >> output_addr_bits != 0 {
++        if addr.raw() >> output_addr_bits != 0 {
+             return Err(RootGeometryError::TableAddressOutOfRange);
+         }
+         Ok(Self {

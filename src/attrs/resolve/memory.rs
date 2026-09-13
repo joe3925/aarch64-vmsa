@@ -3,7 +3,7 @@ use crate::attrs::{
     AllocationHints, AttrError, CachePolicy, Cacheability, DeviceMemoryType, FourBit,
     FwbStage2Memory, MemoryAttributes, MemoryTransience, Stage2MemoryAttributes,
 };
-use crate::config::format::{Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
 use crate::descriptor::DescriptorFormat;
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
@@ -28,27 +28,27 @@ where
 pub(crate) struct MairMemory<const IGNORE_HIGH_WITHOUT_MAIR2: bool>;
 pub(crate) struct DirectStage2Memory;
 
-impl HasMemoryCodec<Stage1> for Vmsa64 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa64<E> {
     type Codec = MairMemory<true>;
 }
 
-impl HasMemoryCodec<Stage1> for Vmsa64Lpa2 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa64Lpa2<E> {
     type Codec = MairMemory<true>;
 }
 
-impl HasMemoryCodec<Stage1> for Vmsa128 {
-    type Codec = MairMemory<false>;
+impl<E: DescriptorEndian> HasMemoryCodec<Stage1> for Vmsa128<E> {
+    type Codec = MairMemory<true>;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa64 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa64<E> {
     type Codec = DirectStage2Memory;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa64Lpa2 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa64Lpa2<E> {
     type Codec = DirectStage2Memory;
 }
 
-impl HasMemoryCodec<Stage2> for Vmsa128 {
+impl<E: DescriptorEndian> HasMemoryCodec<Stage2> for Vmsa128<E> {
     type Codec = DirectStage2Memory;
 }
 
@@ -128,6 +128,32 @@ impl<C: Stage2MemoryConfig> MemoryAttributeCodec<Stage2, C> for DirectStage2Memo
 fn mair_entry(register: u64, index: u8) -> u8 {
     debug_assert!(index < 8);
     (register >> (u32::from(index) * 8)) as u8
+}
+
+pub(crate) fn encode_smmuv3_stage1_memory<C: Stage1MemoryConfig>(
+    config: &C,
+    attrs: MemoryAttributes,
+) -> Result<FourBit, AttrError> {
+    let wanted = encode_mair_attribute(attrs)?;
+    for index in 0..8 {
+        if mair_entry(config.mair(), index) == wanted {
+            return FourBit::new(index);
+        }
+    }
+    Err(AttrError::MemoryAttributeNotConfigured)
+}
+
+pub(crate) fn decode_smmuv3_stage1_memory<C: Stage1MemoryConfig>(
+    config: &C,
+    index: FourBit,
+) -> Result<MemoryAttributes, AttrError> {
+    let index = if config.smmu_v3_aie_enabled() && index.bits() >= 8 {
+        7
+    } else {
+        index.bits() & 7
+    };
+    decode_mair_attribute(mair_entry(config.mair(), index))
+        .ok_or(AttrError::UnencodableMemoryAttribute)
 }
 
 fn encode_mair_attribute(attrs: MemoryAttributes) -> Result<u8, AttrError> {
@@ -229,7 +255,7 @@ fn decode_stage2_combined(bits: u8) -> Option<MemoryAttributes> {
 fn encode_stage2_fwb(attrs: FwbStage2Memory, mte: bool) -> Result<u8, AttrError> {
     match attrs {
         FwbStage2Memory::Device(device) => Ok(encode_device(device)),
-        FwbStage2Memory::ForceNormalNonCacheable => Ok(0b0101),
+        FwbStage2Memory::PreserveDeviceOrForceNormalNonCacheable => Ok(0b0101),
         FwbStage2Memory::ForceNormalWriteBack => Ok(0b0110),
         FwbStage2Memory::UseStage1 => Ok(0b0111),
         FwbStage2Memory::ForceNormalWriteBackNoTagAccess if mte => Ok(0b1110),
@@ -242,7 +268,7 @@ fn encode_stage2_fwb(attrs: FwbStage2Memory, mte: bool) -> Result<u8, AttrError>
 fn decode_stage2_fwb(bits: u8, mte: bool) -> Option<FwbStage2Memory> {
     match bits & 0xf {
         0..=3 => decode_device(bits).map(FwbStage2Memory::Device),
-        0b0101 => Some(FwbStage2Memory::ForceNormalNonCacheable),
+        0b0101 => Some(FwbStage2Memory::PreserveDeviceOrForceNormalNonCacheable),
         0b0110 => Some(FwbStage2Memory::ForceNormalWriteBack),
         0b0111 => Some(FwbStage2Memory::UseStage1),
         0b1110 if mte => Some(FwbStage2Memory::ForceNormalWriteBackNoTagAccess),

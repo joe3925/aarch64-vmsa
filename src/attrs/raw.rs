@@ -50,6 +50,30 @@ impl ThreeBit {
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct TwoBit(u8);
+
+impl TwoBit {
+    pub const ZERO: Self = Self(0);
+
+    pub const fn new(value: u8) -> Result<Self, AttrError> {
+        if value <= 0b11 {
+            Ok(Self(value))
+        } else {
+            Err(AttrError::RawFieldOutOfRange)
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub(crate) const fn from_masked(value: u128) -> Self {
+        Self((value & 0b11) as u8)
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TenBit(u16);
 
 impl TenBit {
@@ -250,6 +274,20 @@ pub struct RawVmsa64Stage2TableAttrs {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawSmmuV2Stage2LeafAttrs {
+    pub mem_attr: FourBit,
+    pub permissions: Stage2Ap,
+    pub shareability: RawShareability,
+    pub access_flag: bool,
+    pub dirty_bit_modifier: bool,
+    pub contiguous: bool,
+    pub execute_never: bool,
+    pub software: FourBit,
+    pub read_allocate: TwoBit,
+    pub write_allocate: TwoBit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawVmsa128Stage1LeafAttrs {
     pub attr_index: FourBit,
     pub bbm_nt: bool,
@@ -282,7 +320,7 @@ pub struct RawVmsa128Stage2LeafAttrs {
     pub dirty: Stage2Dirty,
     pub shareability: RawShareability,
     pub access_flag: bool,
-    pub force_no_execute: bool,
+    pub force_no_xs: bool,
     pub contiguous: bool,
     pub assured_only: bool,
     pub permissions: PermissionIndices,

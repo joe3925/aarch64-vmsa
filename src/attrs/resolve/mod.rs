@@ -1,6 +1,8 @@
 mod codec;
 mod memory;
 mod pas;
+mod permission_codec;
+mod smmu_v2;
 mod stage1_permissions;
 mod stage2_permissions;
 mod vmsa128;
@@ -9,14 +11,20 @@ mod vmsa64;
 pub use codec::AttributeCodec;
 pub(crate) use memory::*;
 pub(crate) use pas::*;
+pub use permission_codec::{
+    PeStage1PermissionCodec, PeStage2PermissionCodec, PermissionCodec, SmmuV2Stage1PermissionCodec,
+    SmmuV2Stage2PermissionCodec, SmmuV3Stage1PermissionCodec, SmmuV3Stage2PermissionCodec,
+    Stage1PermissionCodec, Stage2PermissionCodec,
+};
 pub(crate) use stage1_permissions::*;
 pub use stage1_permissions::{
-    Stage1BasePermissions, Stage1PermissionOverlays, Stage1PermissionRegisters,
+    RawStage1DirectLeafPermissions, Stage1BasePermissions, Stage1DirectEncoding,
+    Stage1PermissionEncoding, Stage1PermissionOverlays, Stage1PermissionRegisters,
     Stage1PermissionSettings,
 };
-pub(crate) use stage2_permissions::*;
 pub use stage2_permissions::{
-    Stage2BasePermissions, Stage2PermissionRegisters, Stage2PermissionSettings,
+    Stage2BasePermissions, Stage2DirectEncoding, Stage2PermissionEncoding,
+    Stage2PermissionRegisters, Stage2PermissionSettings,
 };
 
 use super::{D128Stage1AliasKind, Shareability};
@@ -61,6 +69,9 @@ pub trait Stage1MemoryConfig {
     fn mair(&self) -> u64;
     fn mair2(&self) -> Option<u64> {
         None
+    }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        false
     }
 }
 
@@ -111,6 +122,9 @@ impl<T: Stage1MemoryConfig + ?Sized> Stage1MemoryConfig for &T {
     fn mair2(&self) -> Option<u64> {
         (**self).mair2()
     }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        (**self).smmu_v3_aie_enabled()
+    }
 }
 impl_ref_config!(Stage2MemoryConfig, stage2_memory_mode, Stage2MemoryMode);
 impl<T: Stage1PermissionConfig + ?Sized> Stage1PermissionConfig for &T {
@@ -130,6 +144,7 @@ impl_ref_config!(ShareabilityConfig, effective_shareability, Shareability);
 pub struct LiveVmsaConfig<Pas = ()> {
     pub mair: u64,
     pub mair2: Option<u64>,
+    pub smmu_v3_aie: bool,
     pub stage1_permissions: Stage1PermissionSettings,
     pub stage2_permissions: Stage2PermissionSettings,
     pub stage2_memory_mode: Stage2MemoryMode,
@@ -144,6 +159,9 @@ impl<P> Stage1MemoryConfig for LiveVmsaConfig<P> {
     }
     fn mair2(&self) -> Option<u64> {
         self.mair2
+    }
+    fn smmu_v3_aie_enabled(&self) -> bool {
+        self.smmu_v3_aie
     }
 }
 impl<P> Stage2MemoryConfig for LiveVmsaConfig<P> {
