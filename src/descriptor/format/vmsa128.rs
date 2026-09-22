@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::address::{GranuleKind, Level, PhysAddr, TranslationGranule};
+use crate::address::{ArmTranslationGranule, GranuleKind, Level, PhysAddr};
 use crate::attrs::{
     FourBit, PermissionIndices, RawShareability, RawVmsa128Stage1LeafAttrs,
     RawVmsa128Stage1TableAttrs, RawVmsa128Stage2LeafAttrs, RawVmsa128Stage2TableAttrs,
@@ -12,29 +12,46 @@ use crate::table::{TableAddr, TableTransition};
 use crate::translation::{Stage1, Stage2};
 
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, NextTableDescriptor,
-    insert_address,
+    ArmDescriptorLayout, DescriptorError, DescriptorKind, DescriptorLayout, HasLayout,
+    NextTableDescriptor, insert_address,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa128Layout<E, S, G>(PhantomData<(E, S, G)>);
 
-impl<E, S, G> super::private::LayoutSealed for Vmsa128Layout<E, S, G> {}
+impl<E: DescriptorEndian, G: ArmTranslationGranule> ArmDescriptorLayout<G>
+    for Vmsa128Layout<E, Stage1, G>
+{
+}
 
-impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage1, G> for Vmsa128<E> {
+impl<E: DescriptorEndian, G: ArmTranslationGranule> ArmDescriptorLayout<G>
+    for Vmsa128Layout<E, Stage2, G>
+{
+    const REQUIRED_FEATURES: crate::arch::FeatureRequirements =
+        crate::arch::FeatureRequirements::NONE
+            .require(crate::arch::Capability::D128)
+            .require(crate::arch::Capability::D128Stage2);
+}
+
+impl<E: DescriptorEndian, G: ArmTranslationGranule> HasLayout<Stage1, G> for Vmsa128<E> {
     type Layout = Vmsa128Layout<E, Stage1, G>;
 }
-impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage2, G> for Vmsa128<E> {
+impl<E: DescriptorEndian, G: ArmTranslationGranule> HasLayout<Stage2, G> for Vmsa128<E> {
     type Layout = Vmsa128Layout<E, Stage2, G>;
 }
 
-impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
+unsafe impl<E: DescriptorEndian, G: ArmTranslationGranule> DescriptorLayout<G>
     for Vmsa128Layout<E, Stage1, G>
 {
     type Format = Vmsa128<E>;
     type LeafFields = RawVmsa128Stage1LeafAttrs;
     type TableFields = RawVmsa128Stage1TableAttrs;
+    type Error = DescriptorError;
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
+
+    fn supports_leaf_level(level: Level) -> bool {
+        supports_leaf_level(G::KIND, level)
+    }
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
         kind(
@@ -144,17 +161,18 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
     }
 }
 
-impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
+unsafe impl<E: DescriptorEndian, G: ArmTranslationGranule> DescriptorLayout<G>
     for Vmsa128Layout<E, Stage2, G>
 {
     type Format = Vmsa128<E>;
     type LeafFields = RawVmsa128Stage2LeafAttrs;
     type TableFields = RawVmsa128Stage2TableAttrs;
-    const REQUIRED_FEATURES: crate::arch::FeatureRequirements =
-        crate::arch::FeatureRequirements::NONE
-            .require(crate::arch::Capability::D128)
-            .require(crate::arch::Capability::D128Stage2);
+    type Error = DescriptorError;
     const ADDRESS_FIELD_MASK: u128 = b::ADDRESS_FIELD_MASK;
+
+    fn supports_leaf_level(level: Level) -> bool {
+        supports_leaf_level(G::KIND, level)
+    }
 
     fn kind(raw: u128, level: Level) -> DescriptorKind {
         kind(
@@ -309,7 +327,7 @@ pub(super) fn supports_leaf_level(granule: GranuleKind, level: Level) -> bool {
     (0..=3).contains(&skip) && skl_supported(granule, skip as u8)
 }
 
-fn require_contiguous<G: TranslationGranule>(
+fn require_contiguous<G: ArmTranslationGranule>(
     level: Level,
     contiguous: bool,
 ) -> Result<(), DescriptorError> {
@@ -338,7 +356,7 @@ fn leaf_skl(level: Level) -> u8 {
     skip as u8
 }
 
-fn transition_skl<E: DescriptorEndian, G: TranslationGranule>(
+fn transition_skl<E: DescriptorEndian, G: ArmTranslationGranule>(
     t: TableTransition<Vmsa128<E>, G>,
 ) -> Result<u8, DescriptorError> {
     let step = t.level_step();
@@ -400,14 +418,14 @@ fn next_table_level(raw: u128, level: Level) -> Option<Level> {
     (!next.is_after(Level::L3)).then_some(next)
 }
 
-fn output_address<G: TranslationGranule>(raw: u128, level: Level) -> PhysAddr {
+fn output_address<G: ArmTranslationGranule>(raw: u128, level: Level) -> PhysAddr {
     let address = (raw & b::ADDRESS_FIELD_MASK) as u64;
     let levels = (Level::L3.as_i8() - level.as_i8()).max(0) as u8;
     let bits = G::SHIFT + (G::SHIFT - 4) * levels;
     PhysAddr(align_down(address, bits))
 }
 
-fn table_address<G: TranslationGranule>(raw: u128) -> TableAddr<G> {
+fn table_address<G: ArmTranslationGranule>(raw: u128) -> TableAddr<G> {
     let address = (raw & b::ADDRESS_FIELD_MASK) as u64;
     let bits = 4 + (G::SHIFT - 4) * (raw_skl(raw) + 1);
     let address = align_down(address, bits);
@@ -423,7 +441,7 @@ const fn align_down(address: u64, bits: u8) -> u64 {
     }
 }
 
-fn require_leaf_level<G: TranslationGranule>(level: Level) -> Result<(), DescriptorError> {
+fn require_leaf_level<G: ArmTranslationGranule>(level: Level) -> Result<(), DescriptorError> {
     if supports_leaf_level(G::KIND, level) {
         Ok(())
     } else {

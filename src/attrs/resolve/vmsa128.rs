@@ -27,7 +27,16 @@ use super::{
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa128<E>, R, G, Cfg> for Stage1
 where
-    R: Stage1Regime<Stage = Stage1>,
+    R: Stage1Regime<Stage = Stage1>
+        + paging::regime::TranslationRegime<
+            Vmsa128<E>,
+            G,
+            Layout = <Vmsa128<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa128<E>,
+            Leaf = SemanticLeafAttrs<Vmsa128<E>, R>,
+            Table = SemanticTableAttrs<Vmsa128<E>, R>,
+        >,
     G: TranslationGranule,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig + D128AliasConfig,
     R::PermissionCodec:
@@ -51,6 +60,8 @@ where
             Table = SemanticVmsa128Stage1TableAttrs<<R::PasModel as Stage1PasModel>::TableAttr>,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         level: Level,
@@ -187,7 +198,16 @@ where
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa128<E>, R, G, Cfg> for Stage2
 where
-    R: Stage2Regime<Stage = Stage2>,
+    R: Stage2Regime<Stage = Stage2>
+        + paging::regime::TranslationRegime<
+            Vmsa128<E>,
+            G,
+            Layout = <Vmsa128<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa128<E>,
+            Leaf = SemanticLeafAttrs<Vmsa128<E>, R>,
+            Table = SemanticTableAttrs<Vmsa128<E>, R>,
+        >,
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig,
     R::PermissionCodec:
@@ -211,6 +231,8 @@ where
             Table = SemanticVmsa128Stage2TableAttrs,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         level: Level,

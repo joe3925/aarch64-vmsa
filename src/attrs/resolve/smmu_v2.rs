@@ -1,4 +1,4 @@
-use crate::address::{Level, TranslationGranule};
+use crate::address::Level;
 use crate::attrs::{
     AttrError, DirtyBitManagement, DirtyControl, FourBit, NonSecureIpaContext, RawShareability,
     RawSmmuV2Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, SemanticAttributeTypes, SemanticLeafAttrs,
@@ -20,7 +20,7 @@ use super::{
 
 impl<E: DescriptorEndian, G, Cfg> AttributeCodec<Vmsa64<E>, NonSecureIpaStage2, G, Cfg> for Stage2
 where
-    G: TranslationGranule,
+    G: crate::address::ArmTranslationGranule,
     Cfg: Stage2MemoryConfig,
     SmmuV2Descriptors:
         InterpretsDescriptors<Vmsa64<E>, Stage2, G, Layout = SmmuV2Vmsa64Stage2Layout<E, G>>,
@@ -31,6 +31,8 @@ where
             Table = SemanticVmsa64Stage2TableAttrs,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         _: Level,

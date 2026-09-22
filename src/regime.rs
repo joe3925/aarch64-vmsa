@@ -1,4 +1,4 @@
-use crate::address::TranslationGranule;
+use crate::address::ArmTranslationGranule;
 use crate::arch::{FeatureRequirements, VmsaFeatures};
 use crate::attrs::{
     El1And0Permissions, El2And0Permissions, El2Permissions, El3Permissions, FixedNonSecurePas,
@@ -19,8 +19,8 @@ use crate::config::regime::{
 use crate::config::regime::{smmu_v2, smmu_v3};
 use crate::config::stage2::StandardStage2PermissionModel;
 use crate::descriptor::{
-    DescriptorFormat, DescriptorInterpretation, DescriptorLayout, HasLayout, InterpretsDescriptors,
-    PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors,
+    ArmDescriptorFormat, ArmDescriptorLayout, DescriptorInterpretation, DescriptorLayout,
+    HasLayout, InterpretsDescriptors, PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors,
 };
 use crate::translation::{Stage1, Stage2, TranslationStage};
 
@@ -83,55 +83,41 @@ pub trait Stage2Regime: TranslationRegime {
 pub type Stage2PermissionModelOf<R> =
     <<R as Stage2Regime>::PermissionCodec as Stage2PermissionCodec>::PermissionModel;
 
-pub trait HasRegimeLayout<R, G>: DescriptorFormat
+pub trait HasRegimeLayout<R, G>: ArmDescriptorFormat
 where
     R: TranslationRegime,
-    G: TranslationGranule,
+    G: ArmTranslationGranule,
 {
-    type Layout: DescriptorLayout<R::Stage, G, Format = Self>;
+    type Layout: ArmDescriptorLayout<G, Format = Self>;
 }
 
 impl<F, R, G> HasRegimeLayout<R, G> for F
 where
-    F: DescriptorFormat + HasLayout<R::Stage, G>,
+    F: ArmDescriptorFormat + HasLayout<R::Stage, G>,
     R: PeTranslationRegime,
-    G: TranslationGranule,
+    G: ArmTranslationGranule,
 {
     type Layout = <F as HasLayout<R::Stage, G>>::Layout;
 }
-
-pub(crate) type RegimeLayout<F, R, G> = <F as HasRegimeLayout<R, G>>::Layout;
 
 /// Raw fields selected by the PE layout for `R`'s translation stage.
 ///
 /// This preserves the original public alias for PE-oriented generic code. Use
 /// [`InterpretedLeafFields`] when the regime's descriptor interpretation must be honored.
 pub type RegimeLeafFields<F, R, G> =
-    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
-        <R as TranslationRegime>::Stage,
-        G,
-    >>::LeafFields;
+    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<G>>::LeafFields;
 
 /// Raw leaf fields selected by the descriptor interpretation associated with `R`.
 pub type InterpretedLeafFields<F, R, G> =
-    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<
-        <R as TranslationRegime>::Stage,
-        G,
-    >>::LeafFields;
+    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<G>>::LeafFields;
 
 /// Raw fields selected by the PE table layout for `R`'s translation stage.
 pub type RegimeTableFields<F, R, G> =
-    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<
-        <R as TranslationRegime>::Stage,
-        G,
-    >>::TableFields;
+    <<F as HasLayout<<R as TranslationRegime>::Stage, G>>::Layout as DescriptorLayout<G>>::TableFields;
 
 /// Raw table fields selected by the descriptor interpretation associated with `R`.
 pub type InterpretedTableFields<F, R, G> =
-    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<
-        <R as TranslationRegime>::Stage,
-        G,
-    >>::TableFields;
+    <<F as HasRegimeLayout<R, G>>::Layout as DescriptorLayout<G>>::TableFields;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RegimeValidationError {
@@ -150,12 +136,12 @@ pub fn validate_regime<R: PeTranslationRegime>(
 
 pub fn validate_regime_format<F, R, G>(features: &VmsaFeatures) -> Result<(), RegimeValidationError>
 where
-    F: DescriptorFormat + HasRegimeLayout<R, G>,
+    F: ArmDescriptorFormat + HasRegimeLayout<R, G>,
     R: PeTranslationRegime,
-    G: TranslationGranule,
+    G: ArmTranslationGranule,
 {
     let required = R::REQUIRED_FEATURES
-        .union(<RegimeLayout<F, R, G> as DescriptorLayout<R::Stage, G>>::REQUIRED_FEATURES);
+        .union(<<F as HasRegimeLayout<R, G>>::Layout as ArmDescriptorLayout<G>>::REQUIRED_FEATURES);
     if features.verify(required) {
         Ok(())
     } else {
@@ -319,8 +305,8 @@ macro_rules! smmu_stage1_regime {
         }
         impl<F, G> HasRegimeLayout<$name, G> for F
         where
-            F: DescriptorFormat,
-            G: TranslationGranule,
+            F: ArmDescriptorFormat,
+            G: ArmTranslationGranule,
             $interpretation: InterpretsDescriptors<F, Stage1, G>,
         {
             type Layout = <$interpretation as InterpretsDescriptors<F, Stage1, G>>::Layout;
@@ -390,7 +376,7 @@ smmu_stage2_regime!(
 impl<E, G> HasRegimeLayout<smmu_v2::NonSecureIpaStage2, G> for Vmsa64<E>
 where
     E: DescriptorEndian,
-    G: TranslationGranule,
+    G: ArmTranslationGranule,
 {
     type Layout = crate::descriptor::format::SmmuV2Vmsa64Stage2Layout<E, G>;
 }
@@ -461,8 +447,8 @@ macro_rules! smmu_v3_stage2_regime {
         }
         impl<F, G, P> HasRegimeLayout<smmu_v3::$name<P>, G> for F
         where
-            F: DescriptorFormat,
-            G: TranslationGranule,
+            F: ArmDescriptorFormat,
+            G: ArmTranslationGranule,
             P: Stage2PermissionModel,
             SmmuV3Descriptors: InterpretsDescriptors<F, Stage2, G>,
         {
@@ -495,3 +481,73 @@ smmu_v3_stage2_regime!(
     TranslationSpace::Realm,
     IpaSpace::Realm
 );
+
+macro_rules! shared_regime {
+    ($regime:ty) => {
+        impl<F, G> paging::regime::TranslationRegime<F, G> for $regime
+        where
+            F: ArmDescriptorFormat + HasRegimeLayout<$regime, G>,
+            G: ArmTranslationGranule,
+        {
+            type Layout = <F as HasRegimeLayout<$regime, G>>::Layout;
+        }
+    };
+}
+
+shared_regime!(NonSecureEl1Stage1);
+shared_regime!(SecureEl1Stage1);
+shared_regime!(RealmEl1Stage1);
+shared_regime!(NonSecureEl2Stage1);
+shared_regime!(SecureEl2Stage1);
+shared_regime!(RealmEl2Stage1);
+shared_regime!(NonSecureEl2HostStage1);
+shared_regime!(SecureEl2HostStage1);
+shared_regime!(RealmEl2HostStage1);
+shared_regime!(RootEl3Stage1);
+shared_regime!(smmu_v2::NonSecureStreamStage1);
+shared_regime!(smmu_v2::NonSecurePrivilegedStreamStage1);
+shared_regime!(smmu_v2::SecureStreamStage1);
+shared_regime!(smmu_v2::SecurePrivilegedStreamStage1);
+shared_regime!(smmu_v2::NonSecureIpaStage2);
+shared_regime!(smmu_v3::NonSecureStreamStage1);
+shared_regime!(smmu_v3::NonSecurePrivilegedStreamStage1);
+shared_regime!(smmu_v3::SecureStreamStage1);
+shared_regime!(smmu_v3::SecurePrivilegedStreamStage1);
+shared_regime!(smmu_v3::RealmStreamStage1);
+shared_regime!(smmu_v3::RealmPrivilegedStreamStage1);
+
+macro_rules! shared_generic_regime {
+    ($regime:ident) => {
+        impl<F, G, P> paging::regime::TranslationRegime<F, G> for $regime<P>
+        where
+            F: ArmDescriptorFormat + HasRegimeLayout<$regime<P>, G>,
+            G: ArmTranslationGranule,
+            P: Stage2PermissionModel,
+        {
+            type Layout = <F as HasRegimeLayout<$regime<P>, G>>::Layout;
+        }
+    };
+}
+
+shared_generic_regime!(NonSecureEl2Stage2);
+shared_generic_regime!(SecureEl2SecureIpaStage2);
+shared_generic_regime!(SecureEl2NonSecureIpaStage2);
+shared_generic_regime!(RealmEl2Stage2);
+
+macro_rules! shared_generic_smmu_v3_regime {
+    ($regime:ident) => {
+        impl<F, G, P> paging::regime::TranslationRegime<F, G> for smmu_v3::$regime<P>
+        where
+            F: ArmDescriptorFormat + HasRegimeLayout<smmu_v3::$regime<P>, G>,
+            G: ArmTranslationGranule,
+            P: Stage2PermissionModel,
+        {
+            type Layout = <F as HasRegimeLayout<smmu_v3::$regime<P>, G>>::Layout;
+        }
+    };
+}
+
+shared_generic_smmu_v3_regime!(NonSecureIpaStage2);
+shared_generic_smmu_v3_regime!(SecureIpaStage2);
+shared_generic_smmu_v3_regime!(SecureStreamNonSecureIpaStage2);
+shared_generic_smmu_v3_regime!(RealmIpaStage2);

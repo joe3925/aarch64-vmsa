@@ -13,148 +13,55 @@ use portable_atomic::Ordering;
 #[cfg(target_has_atomic = "128")]
 use portable_atomic::{AtomicU128, Ordering};
 
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{Level, TranslationGranule};
 use crate::arch::{Capability, FeatureRequirements};
 use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
-use crate::table::{TableAddr, TableGeometry, TableTransition};
+use crate::table::{TableGeometry, TableTransition};
 use crate::translation::TranslationStage;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DescriptorKind {
-    Block,
-    Page,
-    Table,
-    Invalid,
+pub use paging::descriptor::{
+    DescriptorError, DescriptorFormat, DescriptorKind, DescriptorLayout, NextTableDescriptor,
+    SupportsLiveDescriptorIo,
+};
+
+pub trait ArmDescriptorFormat: DescriptorFormat {
+    const REQUIRED_FEATURES: FeatureRequirements;
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NextTableDescriptor<G>
+pub trait ArmDescriptorLayout<G>: DescriptorLayout<G>
 where
     G: TranslationGranule,
+    Self::Format: ArmDescriptorFormat,
 {
-    pub address: TableAddr<G>,
-    pub level: Level,
-    pub stride_count: u8,
+    const REQUIRED_FEATURES: FeatureRequirements =
+        <Self::Format as ArmDescriptorFormat>::REQUIRED_FEATURES;
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DescriptorError {
-    InvalidLeafLevel {
-        level: Level,
-    },
-    InvalidTableTransition {
-        parent_level: Level,
-        child_level: Level,
-        stride_count: u8,
-    },
-    ReservedFieldSet {
-        bit: u8,
-    },
-    InvalidNtBbmCombination {
-        level: Level,
-    },
-    InvalidReservedBitState,
+impl<E: DescriptorEndian> ArmDescriptorFormat for Vmsa64<E> {
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+}
+
+impl<E: DescriptorEndian> ArmDescriptorFormat for Vmsa64Lpa2<E> {
+    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
+        .require(Capability::Lpa2)
+        .require(Capability::ExtendedOutputAddress);
+}
+
+impl<E: DescriptorEndian> ArmDescriptorFormat for Vmsa128<E> {
+    const REQUIRED_FEATURES: FeatureRequirements =
+        FeatureRequirements::NONE.require(Capability::D128);
 }
 
 mod private {
-    pub trait FormatSealed {}
-    pub trait LayoutSealed {}
     pub trait InterpretationSealed {}
 }
 
-pub trait DescriptorFormat: private::FormatSealed + Copy + Sized + 'static {
-    type Raw: Copy + Eq;
-
-    const DESCRIPTOR_BYTES: usize;
-    const DESCRIPTOR_SHIFT: u8;
-    const MAX_INPUT_ADDRESS_BITS: u8;
-    const OUTPUT_ADDRESS_BITS: u8;
-    const FINAL_LEVEL: Level = Level::L3;
-    const BASE_LOWEST_ROOT_LEVEL: Level;
-    const EXTENDED_LOWEST_ROOT_LEVEL: Level;
-    const REQUIRED_FEATURES: FeatureRequirements;
-
-    fn invalid() -> Self::Raw;
-    fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool;
-
-    /// This function reads one descriptor.
-    ///
-    /// # Safety
-    /// `ptr` must be aligned. It must give access to one initialized descriptor.
-    unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw;
-
-    /// This function writes one descriptor.
-    ///
-    /// # Safety
-    /// `ptr` must be aligned. It must give access to one writable descriptor.
-    unsafe fn write_descriptor(ptr: *mut Self::Raw, raw: Self::Raw);
-}
-
-/// This trait identifies a format with atomic access to live descriptors.
-pub trait SupportsLiveDescriptorIo: DescriptorFormat {}
-
-pub trait DescriptorLayout<S, G>: private::LayoutSealed + Copy + 'static
+pub trait HasLayout<S, G>: ArmDescriptorFormat
 where
     S: TranslationStage,
     G: TranslationGranule,
 {
-    type Format: DescriptorFormat;
-    type LeafFields: Copy;
-    type TableFields: Copy;
-
-    const REQUIRED_FEATURES: FeatureRequirements = Self::Format::REQUIRED_FEATURES;
-    const ADDRESS_FIELD_MASK: u128;
-
-    fn kind(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> DescriptorKind;
-    fn decode_leaf_fields(
-        raw: <Self::Format as DescriptorFormat>::Raw,
-        level: Level,
-    ) -> Self::LeafFields;
-    fn decode_table_fields(
-        raw: <Self::Format as DescriptorFormat>::Raw,
-        level: Level,
-    ) -> Self::TableFields;
-    fn leaf_descriptor(
-        output_pa: PhysAddr,
-        level: Level,
-        fields: Self::LeafFields,
-    ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
-    fn table_descriptor(
-        table_addr: TableAddr<G>,
-        transition: TableTransition<Self::Format, G>,
-        fields: Self::TableFields,
-    ) -> Result<<Self::Format as DescriptorFormat>::Raw, DescriptorError>;
-    fn output_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> PhysAddr;
-
-    /// Every layout must override this. Routing through `output_address` is wrong once
-    /// that function normalises for the *leaf* level: a table descriptor at L1 would be
-    /// aligned to the L1 block size and lose real address bits.
-    fn table_address(raw: <Self::Format as DescriptorFormat>::Raw, level: Level) -> TableAddr<G>;
-
-    fn next_table(
-        raw: <Self::Format as DescriptorFormat>::Raw,
-        level: Level,
-    ) -> Option<NextTableDescriptor<G>> {
-        level
-            .is_before(Self::Format::FINAL_LEVEL)
-            .then(|| NextTableDescriptor {
-                address: Self::table_address(raw, level),
-                level: level.next(),
-                stride_count: 1,
-            })
-    }
-
-    fn supports_table_transition(transition: TableTransition<Self::Format, G>) -> bool {
-        transition.level_step() == 1 && transition.child().stride_count().raw() == 1
-    }
-}
-
-pub trait HasLayout<S, G>: DescriptorFormat
-where
-    S: TranslationStage,
-    G: TranslationGranule,
-{
-    type Layout: DescriptorLayout<S, G, Format = Self>;
+    type Layout: ArmDescriptorLayout<G, Format = Self>;
 }
 
 /// Selects the raw descriptor interpretation used by a translation regime.
@@ -170,11 +77,11 @@ pub trait DescriptorInterpretation: private::InterpretationSealed + Copy + 'stat
 /// Maps a format, stage, and granule to the layout understood by an interpreter.
 pub trait InterpretsDescriptors<F, S, G>: DescriptorInterpretation
 where
-    F: DescriptorFormat,
+    F: ArmDescriptorFormat,
     S: TranslationStage,
     G: TranslationGranule,
 {
-    type Layout: DescriptorLayout<S, G, Format = F>;
+    type Layout: ArmDescriptorLayout<G, Format = F>;
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -206,7 +113,7 @@ impl DescriptorInterpretation for SmmuV3Descriptors {
 
 impl<F, S, G> InterpretsDescriptors<F, S, G> for PeDescriptors
 where
-    F: DescriptorFormat + HasLayout<S, G>,
+    F: ArmDescriptorFormat + HasLayout<S, G>,
     S: TranslationStage,
     G: TranslationGranule,
 {
@@ -215,7 +122,7 @@ where
 
 impl<F, S, G> InterpretsDescriptors<F, S, G> for SmmuV3Descriptors
 where
-    F: DescriptorFormat + HasLayout<S, G>,
+    F: ArmDescriptorFormat + HasLayout<S, G>,
     S: TranslationStage,
     G: TranslationGranule,
 {
@@ -238,32 +145,25 @@ where
     type Layout = smmu_v2::SmmuV2Vmsa64Stage2Layout<E, G>;
 }
 
-impl<E: DescriptorEndian> private::FormatSealed for Vmsa64<E> {}
-impl<E: DescriptorEndian> private::FormatSealed for Vmsa64Lpa2<E> {}
-impl<E: DescriptorEndian> private::FormatSealed for Vmsa128<E> {}
-
 #[cfg(target_has_atomic = "64")]
-impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64<E> {}
+unsafe impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64<E> {}
 #[cfg(target_has_atomic = "64")]
-impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64Lpa2<E> {}
+unsafe impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa64Lpa2<E> {}
 #[cfg(target_has_atomic = "128")]
-impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa128<E> {}
+unsafe impl<E: DescriptorEndian> SupportsLiveDescriptorIo for Vmsa128<E> {}
 
-impl<E: DescriptorEndian> DescriptorFormat for Vmsa64<E> {
+unsafe impl<E: DescriptorEndian> DescriptorFormat for Vmsa64<E> {
     type Raw = u64;
     const DESCRIPTOR_BYTES: usize = 8;
     const DESCRIPTOR_SHIFT: u8 = 3;
     const MAX_INPUT_ADDRESS_BITS: u8 = 52;
     const OUTPUT_ADDRESS_BITS: u8 = 48;
-    const BASE_LOWEST_ROOT_LEVEL: Level = Level::L0;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
-    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE;
+    const FINAL_LEVEL: Level = Level::L3;
+    const SUPPORTED_OUTPUT_ADDRESS_BITS: &'static [u8] = &[32, 36, 40, 42, 44, 48, 52];
 
     fn invalid() -> Self::Raw {
         0
-    }
-    fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool {
-        vmsa64::supports_leaf_level(G::KIND, level)
     }
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
         #[cfg(target_has_atomic = "64")]
@@ -291,23 +191,18 @@ impl<E: DescriptorEndian> DescriptorFormat for Vmsa64<E> {
     }
 }
 
-impl<E: DescriptorEndian> DescriptorFormat for Vmsa64Lpa2<E> {
+unsafe impl<E: DescriptorEndian> DescriptorFormat for Vmsa64Lpa2<E> {
     type Raw = u64;
     const DESCRIPTOR_BYTES: usize = 8;
     const DESCRIPTOR_SHIFT: u8 = 3;
     const MAX_INPUT_ADDRESS_BITS: u8 = 52;
     const OUTPUT_ADDRESS_BITS: u8 = 52;
-    const BASE_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG1;
-    const REQUIRED_FEATURES: FeatureRequirements = FeatureRequirements::NONE
-        .require(Capability::Lpa2)
-        .require(Capability::ExtendedOutputAddress);
+    const FINAL_LEVEL: Level = Level::L3;
+    const SUPPORTED_OUTPUT_ADDRESS_BITS: &'static [u8] = &[32, 36, 40, 42, 44, 48, 52];
 
     fn invalid() -> Self::Raw {
         0
-    }
-    fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool {
-        vmsa64_lpa2::supports_leaf_level(G::KIND, level)
     }
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
         #[cfg(target_has_atomic = "64")]
@@ -335,22 +230,18 @@ impl<E: DescriptorEndian> DescriptorFormat for Vmsa64Lpa2<E> {
     }
 }
 
-impl<E: DescriptorEndian> DescriptorFormat for Vmsa128<E> {
+unsafe impl<E: DescriptorEndian> DescriptorFormat for Vmsa128<E> {
     type Raw = u128;
     const DESCRIPTOR_BYTES: usize = 16;
     const DESCRIPTOR_SHIFT: u8 = 4;
     const MAX_INPUT_ADDRESS_BITS: u8 = 56;
     const OUTPUT_ADDRESS_BITS: u8 = 56;
-    const BASE_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
     const EXTENDED_LOWEST_ROOT_LEVEL: Level = Level::NEG2;
-    const REQUIRED_FEATURES: FeatureRequirements =
-        FeatureRequirements::NONE.require(Capability::D128);
+    const FINAL_LEVEL: Level = Level::L3;
+    const SUPPORTED_OUTPUT_ADDRESS_BITS: &'static [u8] = &[32, 36, 40, 42, 44, 48, 52, 56];
 
     fn invalid() -> Self::Raw {
         0
-    }
-    fn supports_leaf_level<G: TranslationGranule>(level: Level) -> bool {
-        vmsa128::supports_leaf_level(G::KIND, level)
     }
     unsafe fn read_descriptor(ptr: *const Self::Raw) -> Self::Raw {
         #[cfg(target_has_atomic = "128")]

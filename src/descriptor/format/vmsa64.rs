@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::address::{GranuleKind, Level, PhysAddr, TranslationGranule};
+use crate::address::{ArmTranslationGranule, GranuleKind, Level, PhysAddr};
 use crate::attrs::{
     FourBit, RawShareability, RawVmsa64Stage1LeafAttrs, RawVmsa64Stage1TableAttrs,
     RawVmsa64Stage2LeafAttrs, RawVmsa64Stage2TableAttrs,
@@ -15,29 +15,42 @@ use super::vmsa64_family::{
     finish_stage1_leaf, finish_stage2_leaf, finish_table,
 };
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, HasLayout, align_output, insert_address,
-    require_step_by_one_transition,
+    ArmDescriptorLayout, DescriptorError, DescriptorKind, DescriptorLayout, HasLayout,
+    align_output, insert_address, require_step_by_one_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Vmsa64Layout<E, S, G>(PhantomData<(E, S, G)>);
 
-impl<E, S, G> super::private::LayoutSealed for Vmsa64Layout<E, S, G> {}
+impl<E: DescriptorEndian, G: ArmTranslationGranule> ArmDescriptorLayout<G>
+    for Vmsa64Layout<E, Stage1, G>
+{
+}
 
-impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage1, G> for Vmsa64<E> {
+impl<E: DescriptorEndian, G: ArmTranslationGranule> ArmDescriptorLayout<G>
+    for Vmsa64Layout<E, Stage2, G>
+{
+}
+
+impl<E: DescriptorEndian, G: ArmTranslationGranule> HasLayout<Stage1, G> for Vmsa64<E> {
     type Layout = Vmsa64Layout<E, Stage1, G>;
 }
-impl<E: DescriptorEndian, G: TranslationGranule> HasLayout<Stage2, G> for Vmsa64<E> {
+impl<E: DescriptorEndian, G: ArmTranslationGranule> HasLayout<Stage2, G> for Vmsa64<E> {
     type Layout = Vmsa64Layout<E, Stage2, G>;
 }
 
-impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
+unsafe impl<E: DescriptorEndian, G: ArmTranslationGranule> DescriptorLayout<G>
     for Vmsa64Layout<E, Stage1, G>
 {
     type Format = Vmsa64<E>;
     type LeafFields = RawVmsa64Stage1LeafAttrs;
     type TableFields = RawVmsa64Stage1TableAttrs;
+    type Error = DescriptorError;
     const ADDRESS_FIELD_MASK: u128 = bits::ADDRESS_FIELD_MASK;
+
+    fn supports_leaf_level(level: Level) -> bool {
+        supports_leaf_level(G::KIND, level)
+    }
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
         kind(G::KIND, raw, level)
@@ -126,13 +139,18 @@ impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage1, G>
     }
 }
 
-impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
+unsafe impl<E: DescriptorEndian, G: ArmTranslationGranule> DescriptorLayout<G>
     for Vmsa64Layout<E, Stage2, G>
 {
     type Format = Vmsa64<E>;
     type LeafFields = RawVmsa64Stage2LeafAttrs;
     type TableFields = RawVmsa64Stage2TableAttrs;
+    type Error = DescriptorError;
     const ADDRESS_FIELD_MASK: u128 = bits::ADDRESS_FIELD_MASK;
+
+    fn supports_leaf_level(level: Level) -> bool {
+        supports_leaf_level(G::KIND, level)
+    }
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
         kind(G::KIND, raw, level)
@@ -233,7 +251,7 @@ const fn supports_block(granule: GranuleKind, level: Level) -> bool {
     )
 }
 
-fn require_leaf_level<G: TranslationGranule>(level: Level) -> Result<(), DescriptorError> {
+fn require_leaf_level<G: ArmTranslationGranule>(level: Level) -> Result<(), DescriptorError> {
     if supports_leaf_level(G::KIND, level) {
         Ok(())
     } else {

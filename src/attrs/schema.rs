@@ -1,4 +1,10 @@
 use crate::config::format::{DescriptorEndian, Vmsa64, Vmsa64Lpa2, Vmsa128};
+use crate::config::regime::{
+    NonSecureEl1Stage1, NonSecureEl2HostStage1, NonSecureEl2Stage1, NonSecureEl2Stage2,
+    RealmEl1Stage1, RealmEl2HostStage1, RealmEl2Stage1, RealmEl2Stage2, RootEl3Stage1,
+    SecureEl1Stage1, SecureEl2HostStage1, SecureEl2NonSecureIpaStage2, SecureEl2SecureIpaStage2,
+    SecureEl2Stage1, smmu_v2, smmu_v3,
+};
 use crate::descriptor::{DescriptorFormat, PeDescriptors, SmmuV2Descriptors, SmmuV3Descriptors};
 use crate::regime::{Stage1PrivilegeModel, Stage1Regime, Stage2Regime, TranslationRegime};
 use crate::translation::{Stage1, Stage2};
@@ -10,7 +16,7 @@ use super::{
     SemanticVmsa64Stage2TableAttrs, SemanticVmsa128Stage1LeafControls,
     SemanticVmsa128Stage1TableAttrs, SemanticVmsa128Stage2LeafControls,
     SemanticVmsa128Stage2TableAttrs, Stage1PasModel, Stage1Permissions, Stage2PasContext,
-    Stage2Permissions,
+    Stage2PermissionModel, Stage2Permissions,
 };
 
 /// Selects the semantic schema exposed by a descriptor format.
@@ -177,3 +183,76 @@ where
 
     type Table = SemanticVmsa128Stage2TableAttrs;
 }
+
+macro_rules! shared_semantic_regime {
+    ($regime:ty, $stage:ty) => {
+        impl<F> paging::regime::SemanticRegime<F> for $regime
+        where
+            F: DescriptorFormat + SemanticAttributeTypes<$stage, $regime>,
+        {
+            type Leaf = <F as SemanticAttributeTypes<$stage, $regime>>::Leaf;
+            type Table = <F as SemanticAttributeTypes<$stage, $regime>>::Table;
+            type Codec = $stage;
+        }
+    };
+}
+
+shared_semantic_regime!(NonSecureEl1Stage1, Stage1);
+shared_semantic_regime!(SecureEl1Stage1, Stage1);
+shared_semantic_regime!(RealmEl1Stage1, Stage1);
+shared_semantic_regime!(NonSecureEl2Stage1, Stage1);
+shared_semantic_regime!(SecureEl2Stage1, Stage1);
+shared_semantic_regime!(RealmEl2Stage1, Stage1);
+shared_semantic_regime!(NonSecureEl2HostStage1, Stage1);
+shared_semantic_regime!(SecureEl2HostStage1, Stage1);
+shared_semantic_regime!(RealmEl2HostStage1, Stage1);
+shared_semantic_regime!(RootEl3Stage1, Stage1);
+shared_semantic_regime!(smmu_v2::NonSecureStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v2::NonSecurePrivilegedStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v2::SecureStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v2::SecurePrivilegedStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v2::NonSecureIpaStage2, Stage2);
+shared_semantic_regime!(smmu_v3::NonSecureStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v3::NonSecurePrivilegedStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v3::SecureStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v3::SecurePrivilegedStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v3::RealmStreamStage1, Stage1);
+shared_semantic_regime!(smmu_v3::RealmPrivilegedStreamStage1, Stage1);
+
+macro_rules! shared_generic_semantic_regime {
+    ($regime:ident) => {
+        impl<F, P> paging::regime::SemanticRegime<F> for $regime<P>
+        where
+            F: DescriptorFormat + SemanticAttributeTypes<Stage2, $regime<P>>,
+            P: Stage2PermissionModel,
+        {
+            type Leaf = <F as SemanticAttributeTypes<Stage2, $regime<P>>>::Leaf;
+            type Table = <F as SemanticAttributeTypes<Stage2, $regime<P>>>::Table;
+            type Codec = Stage2;
+        }
+    };
+}
+
+shared_generic_semantic_regime!(NonSecureEl2Stage2);
+shared_generic_semantic_regime!(SecureEl2SecureIpaStage2);
+shared_generic_semantic_regime!(SecureEl2NonSecureIpaStage2);
+shared_generic_semantic_regime!(RealmEl2Stage2);
+
+macro_rules! shared_generic_smmu_v3_semantic_regime {
+    ($regime:ident) => {
+        impl<F, P> paging::regime::SemanticRegime<F> for smmu_v3::$regime<P>
+        where
+            F: DescriptorFormat + SemanticAttributeTypes<Stage2, smmu_v3::$regime<P>>,
+            P: Stage2PermissionModel,
+        {
+            type Leaf = <F as SemanticAttributeTypes<Stage2, smmu_v3::$regime<P>>>::Leaf;
+            type Table = <F as SemanticAttributeTypes<Stage2, smmu_v3::$regime<P>>>::Table;
+            type Codec = Stage2;
+        }
+    };
+}
+
+shared_generic_smmu_v3_semantic_regime!(NonSecureIpaStage2);
+shared_generic_smmu_v3_semantic_regime!(SecureIpaStage2);
+shared_generic_smmu_v3_semantic_regime!(SecureStreamNonSecureIpaStage2);
+shared_generic_smmu_v3_semantic_regime!(RealmIpaStage2);

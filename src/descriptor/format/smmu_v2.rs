@@ -1,32 +1,39 @@
 use core::marker::PhantomData;
 
-use crate::address::{Level, PhysAddr, TranslationGranule};
+use crate::address::{ArmTranslationGranule, Level, PhysAddr};
 use crate::attrs::{
     FourBit, RawShareability, RawSmmuV2Stage2LeafAttrs, RawVmsa64Stage2TableAttrs, Stage2Ap, TwoBit,
 };
 use crate::config::format::{DescriptorEndian, Vmsa64};
 use crate::descriptor::layout::smmu_v2 as bits;
 use crate::table::{TableAddr, TableTransition};
-use crate::translation::Stage2;
 
 use super::{
-    DescriptorError, DescriptorKind, DescriptorLayout, align_output, insert_address,
-    require_step_by_one_transition,
+    ArmDescriptorLayout, DescriptorError, DescriptorKind, DescriptorLayout, align_output,
+    insert_address, require_step_by_one_transition,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SmmuV2Vmsa64Stage2Layout<E, G>(PhantomData<(E, G)>);
 
-impl<E, G> super::private::LayoutSealed for SmmuV2Vmsa64Stage2Layout<E, G> {}
+impl<E: DescriptorEndian, G: ArmTranslationGranule> ArmDescriptorLayout<G>
+    for SmmuV2Vmsa64Stage2Layout<E, G>
+{
+}
 
-impl<E: DescriptorEndian, G: TranslationGranule> DescriptorLayout<Stage2, G>
+unsafe impl<E: DescriptorEndian, G: ArmTranslationGranule> DescriptorLayout<G>
     for SmmuV2Vmsa64Stage2Layout<E, G>
 {
     type Format = Vmsa64<E>;
     type LeafFields = RawSmmuV2Stage2LeafAttrs;
     type TableFields = RawVmsa64Stage2TableAttrs;
+    type Error = DescriptorError;
 
     const ADDRESS_FIELD_MASK: u128 = bits::ADDRESS_FIELD_MASK;
+
+    fn supports_leaf_level(level: Level) -> bool {
+        super::vmsa64::supports_leaf_level(G::KIND, level)
+    }
 
     fn kind(raw: u64, level: Level) -> DescriptorKind {
         let kind = super::vmsa64::kind(G::KIND, raw, level);

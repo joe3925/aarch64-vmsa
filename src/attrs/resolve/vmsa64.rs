@@ -280,7 +280,16 @@ where
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64<E>, R, G, Cfg> for Stage1
 where
-    R: Stage1Regime<Stage = Stage1>,
+    R: Stage1Regime<Stage = Stage1>
+        + paging::regime::TranslationRegime<
+            Vmsa64<E>,
+            G,
+            Layout = <Vmsa64<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa64<E>,
+            Leaf = SemanticLeafAttrs<Vmsa64<E>, R>,
+            Table = SemanticTableAttrs<Vmsa64<E>, R>,
+        >,
     G: TranslationGranule,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig,
     Stage1PrivilegeModel<R>: Stage1DirectPermissionModel,
@@ -309,6 +318,8 @@ where
             >,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         _: Level,
@@ -360,7 +371,16 @@ where
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64Lpa2<E>, R, G, Cfg> for Stage1
 where
-    R: Stage1Regime<Stage = Stage1>,
+    R: Stage1Regime<Stage = Stage1>
+        + paging::regime::TranslationRegime<
+            Vmsa64Lpa2<E>,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa64Lpa2<E>,
+            Leaf = SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+            Table = SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+        >,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage1MemoryConfig + Stage1PermissionConfig + ShareabilityConfig,
     Stage1PrivilegeModel<R>: Stage1DirectPermissionModel,
@@ -389,6 +409,8 @@ where
             >,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         _: Level,
@@ -584,7 +606,16 @@ fn decode_stage2_table_core(
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64<E>, R, G, Cfg> for Stage2
 where
-    R: Stage2Regime<Stage = Stage2>,
+    R: Stage2Regime<Stage = Stage2>
+        + paging::regime::TranslationRegime<
+            Vmsa64<E>,
+            G,
+            Layout = <Vmsa64<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa64<E>,
+            Leaf = SemanticLeafAttrs<Vmsa64<E>, R>,
+            Table = SemanticTableAttrs<Vmsa64<E>, R>,
+        >,
     G: TranslationGranule,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig,
     R::PermissionCodec:
@@ -608,6 +639,8 @@ where
             Table = SemanticVmsa64Stage2TableAttrs,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         _: Level,
@@ -643,7 +676,16 @@ where
 
 impl<E: DescriptorEndian, R, G, Cfg> AttributeCodec<Vmsa64Lpa2<E>, R, G, Cfg> for Stage2
 where
-    R: Stage2Regime<Stage = Stage2>,
+    R: Stage2Regime<Stage = Stage2>
+        + paging::regime::TranslationRegime<
+            Vmsa64Lpa2<E>,
+            G,
+            Layout = <Vmsa64Lpa2<E> as HasRegimeLayout<R, G>>::Layout,
+        > + paging::regime::SemanticRegime<
+            Vmsa64Lpa2<E>,
+            Leaf = SemanticLeafAttrs<Vmsa64Lpa2<E>, R>,
+            Table = SemanticTableAttrs<Vmsa64Lpa2<E>, R>,
+        >,
     G: TranslationGranule + Lpa2GranulePolicy<Cfg>,
     Cfg: Stage2MemoryConfig + Stage2PermissionConfig + ShareabilityConfig,
     R::PermissionCodec:
@@ -667,6 +709,8 @@ where
             Table = SemanticVmsa64Stage2TableAttrs,
         >,
 {
+    type Error = AttrError;
+
     fn encode_leaf(
         config: &Cfg,
         _: Level,
