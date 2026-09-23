@@ -28,7 +28,7 @@ pub trait ArmDescriptorFormat: DescriptorFormat {
     const REQUIRED_FEATURES: FeatureRequirements;
 }
 
-pub trait ArmDescriptorLayout<G>: DescriptorLayout<G>
+pub trait ArmDescriptorLayout<G>: DescriptorLayout<G, Error = DescriptorError>
 where
     G: TranslationGranule,
     Self::Format: ArmDescriptorFormat,
