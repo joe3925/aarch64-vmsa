@@ -28,6 +28,7 @@ pub trait ArmDescriptorFormat: DescriptorFormat {
     const REQUIRED_FEATURES: FeatureRequirements;
 }
 
+/// An Arm translation-table layout with the architecture's descriptor error type.
 pub trait ArmDescriptorLayout<G>: DescriptorLayout<G, Error = DescriptorError>
 where
     G: TranslationGranule,
